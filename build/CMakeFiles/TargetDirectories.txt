@@ -1,0 +1,3 @@
+C:/Users/PC/OneDrive - National Economics University/Kì 3/OOP/project/build/CMakeFiles/GameAssetPipeline.dir
+C:/Users/PC/OneDrive - National Economics University/Kì 3/OOP/project/build/CMakeFiles/edit_cache.dir
+C:/Users/PC/OneDrive - National Economics University/Kì 3/OOP/project/build/CMakeFiles/rebuild_cache.dir
