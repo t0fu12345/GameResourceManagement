@@ -1,3 +1,19 @@
 # ninja log v7
-5	136	8125167268681374	CMakeFiles/GameAssetPipeline.dir/src/main.cpp.obj	e7dca3fec0c3a99f
-138	366	8125167270009390	GameAssetPipeline.exe	7334bb1e3553e7e1
+6	682	8125174746257079	CMakeFiles/GameAssetPipeline.dir/src/main.cpp.obj	e7dca3fec0c3a99f
+682	881	8125174753014650	GameAssetPipeline.exe	7334bb1e3553e7e1
+46	450	8125175859726323	build.ninja	91c74bffc4120739
+46	450	8125175859726323	C:/Users/PC/OneDrive - National Economics University/Kì 3/OOP/project/build/cmake_install.cmake	91c74bffc4120739
+2	2614	8125176378530043	CMakeFiles/GameAssetPipeline.dir/src/main.cpp.obj	e7dca3fec0c3a99f
+2619	2915	8125176404687945	GameAssetPipeline.exe	7334bb1e3553e7e1
+54	1899	8125176818334034	CMakeFiles/GameAssetPipeline.dir/src/main.cpp.obj	e7dca3fec0c3a99f
+1901	2166	8125176836798925	GameAssetPipeline.exe	7334bb1e3553e7e1
+42	6882	8125178594233741	CMakeFiles/GameAssetPipeline.dir/src/main.cpp.obj	e7dca3fec0c3a99f
+6902	7341	8125178662830047	GameAssetPipeline.exe	7334bb1e3553e7e1
+44	2376	8125179897070534	CMakeFiles/GameAssetPipeline.dir/src/main.cpp.obj	e7dca3fec0c3a99f
+2378	2634	8125179920414956	GameAssetPipeline.exe	7334bb1e3553e7e1
+61	2049	8125182022330694	CMakeFiles/GameAssetPipeline.dir/src/main.cpp.obj	e7dca3fec0c3a99f
+2051	2305	8125182042231235	GameAssetPipeline.exe	7334bb1e3553e7e1
+33	2139	8125184383276635	CMakeFiles/GameAssetPipeline.dir/src/main.cpp.obj	e7dca3fec0c3a99f
+2141	2385	8125184404351012	GameAssetPipeline.exe	7334bb1e3553e7e1
+45	2495	8125185635269681	CMakeFiles/GameAssetPipeline.dir/src/main.cpp.obj	e7dca3fec0c3a99f
+2496	2763	8125185659786474	GameAssetPipeline.exe	7334bb1e3553e7e1
