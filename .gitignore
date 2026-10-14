@@ -1,0 +1,12 @@
+# Build artifacts
+build/
+bin/
+*.exe
+*.obj
+*.o
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.suo
+*.user
