@@ -8,6 +8,8 @@
 #include <memory>
 #include <mutex>
 
+using namespace std;
+
 struct MemoryStats {
     size_t totalAssetMemoryBytes{0};
     size_t totalCachedEntries{0};
@@ -21,20 +23,20 @@ struct MemoryStats {
 class AssetManager {
 private:
     // Cache Registry su dung weak_ptr de ho tro giai phong bo nho tu dong (Reference Counting)
-    std::unordered_map<std::string, std::weak_ptr<IAsset>> cacheRegistry;
+    unordered_map<string, weak_ptr<IAsset>> cacheRegistry;
 
     // Danh sach LRU theo doi thu tu su dung tai nguyen
-    std::list<std::string> lruAccessList;
-    std::unordered_map<std::string, std::list<std::string>::iterator> lruIterators;
+    list<string> lruAccessList;
+    unordered_map<string, list<string>::iterator> lruIterators;
 
     // Danh sach giu tham chieu chu dong cho LRU Cache de khong bi giai phong ngay lap tuc neu chua vuot budget
-    std::unordered_map<std::string, std::shared_ptr<IAsset>> lruHoldCache;
+    unordered_map<string, shared_ptr<IAsset>> lruHoldCache;
 
     size_t maxMemoryBudget{128 * 1024 * 1024}; // Mac dinh 128 MB
     size_t currentCachedMemoryBytes{0};
     size_t totalCleanedDeadCount{0};
 
-    mutable std::mutex managerMutex;
+    mutable mutex managerMutex;
     AssetTranscoder transcoder;
 
     // Private Constructor (Singleton Pattern)
@@ -50,7 +52,7 @@ public:
 
     // Lay tai nguyen (Neu useFlyweight=true: dung chung; neu false: cap phat ban sao rieng)
     // Neu useProxy=true: tra ve AssetProxy de load ngam (anti-stuttering)
-    std::shared_ptr<IAsset> getAsset(const std::string& path, AssetType type, bool useProxy = true, bool useFlyweight = true, int delayMs = 1500);
+    shared_ptr<IAsset> getAsset(const string& path, AssetType type, bool useProxy = true, bool useFlyweight = true, int delayMs = 1500);
 
     // Kich hoat giai phong bo nho theo thuat toan LRU neu vuot nguong budget
     void evictLRU(size_t neededBytes = 0);
@@ -62,7 +64,7 @@ public:
     void clearAllCache();
 
     // Cap nhat thu tu truy cap trong LRU list
-    void touchLRU(const std::string& path);
+    void touchLRU(const string& path);
 
     // Cau hinh nguong Memory Budget
     void setMemoryBudget(size_t budgetBytes);

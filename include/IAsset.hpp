@@ -4,6 +4,8 @@
 #include <memory>
 #include <cstddef>
 
+using namespace std;
+
 enum class AssetType {
     TEXTURE_2D,
     MESH_3D,
@@ -16,7 +18,7 @@ public:
     virtual ~IAsset() = default;
 
     // Nap tai nguyen vao bo nho (RAM / VRAM)
-    virtual bool load(const std::string& path) = 0;
+    virtual bool load(const string& path) = 0;
 
     // Giai phong tai nguyen khoi bo nho
     virtual void unload() = 0;
@@ -37,5 +39,5 @@ public:
     virtual AssetType getType() const = 0;
 
     // Duong dan file goc
-    virtual std::string getPath() const = 0;
+    virtual string getPath() const = 0;
 };

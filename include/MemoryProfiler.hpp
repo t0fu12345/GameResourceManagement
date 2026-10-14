@@ -3,6 +3,8 @@
 #include <string>
 #include <cstddef>
 
+using namespace std;
+
 struct ProcessMemoryInfo {
     size_t workingSetBytes{0};       // RAM vat ly thuc te dang dung
     size_t peakWorkingSetBytes{0};   // RAM dinh diem cao nhat
@@ -20,5 +22,5 @@ public:
     static ProcessMemoryInfo queryProcessMemory();
 
     // Dinh dang dung luong byte thanh chuoi KB, MB, GB de doc
-    static std::string formatBytes(size_t bytes);
+    static string formatBytes(size_t bytes);
 };

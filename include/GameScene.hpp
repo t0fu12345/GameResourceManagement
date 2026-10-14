@@ -7,10 +7,12 @@
 #include <memory>
 #include <string>
 
+using namespace std;
+
 // Quan ly man choi, dieu phoi quai vat va hien thi Dashboard do dac
 class GameScene {
 private:
-    std::vector<std::unique_ptr<GameObject>> entities;
+    vector<unique_ptr<GameObject>> entities;
     int nextEntityId{1};
 
     // Cac che do toi uu hoa
@@ -18,11 +20,11 @@ private:
     bool useProxy{true};
 
     // Thong tin thong bao tren man hinh
-    std::string statusMessage{"He thong san sang! Nhan [SPACE] de spawn 50 quai vat."};
+    string statusMessage{"He thong san sang! Nhan [SPACE] de spawn 50 quai vat."};
     float statusTimer{5.0f};
 
     // Danh sach cac asset mau
-    std::vector<std::string> monsterTypes{"zombie", "demon", "dragon", "robot"};
+    vector<string> monsterTypes{"zombie", "demon", "dragon", "robot"};
 
 public:
     GameScene();

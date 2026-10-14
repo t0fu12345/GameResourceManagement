@@ -2,11 +2,15 @@
 
 #include "IAsset.hpp"
 #include "raylib.h"
+#include <string>
+#include <memory>
+
+using namespace std;
 
 // Concrete Asset: Quan ly Mesh/Model 3D (Dong vai tro Intrinsic State trong Flyweight)
 class MeshAsset : public IAsset {
 private:
-    std::string filePath;
+    string filePath;
     Model model3D{};
     size_t memorySize{0};
     bool loaded{false};
@@ -16,15 +20,15 @@ public:
     MeshAsset();
     ~MeshAsset() override;
 
-    bool load(const std::string& path) override;
+    bool load(const string& path) override;
     void unload() override;
     void render(float posX, float posY, float scale = 1.0f) override;
-    void play() override; // Khong hoat dong voi Mesh
+    void play() override;
     bool isLoaded() const override;
     size_t getSizeBytes() const override;
     AssetType getType() const override;
-    std::string getPath() const override;
+    string getPath() const override;
 
     // Tao placeholder 3D dang khoi lap phuong hoac wireframe nhe
-    static std::shared_ptr<MeshAsset> createCubePlaceholder();
+    static shared_ptr<MeshAsset> createCubePlaceholder();
 };
