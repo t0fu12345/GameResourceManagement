@@ -104,7 +104,107 @@ Trong phát triển game và đồ họa máy tính hiện đại, **tài nguyê
 
 ### 2.5. Bộ Chuyển Mã Nén Tài Sản (`AssetTranscoder`)
 * **Mục đích:** Mô phỏng quy trình xử lý tài sản (*Asset Pipeline*) chuyên nghiệp trong các Game Engine AAA.
-* **Cơ chế:** Chuyển đổi định dạng hình ảnh thô không nén (*Raw RGBA32* = 4 bytes/pixel) sang các định dạng nén khối phần cứng của GPU (*DirectDraw Surface DDS / DXT5* hoặc *WebP*). Giúp giảm từ 4 bytes/pixel xuống còn 1 byte/pixel, **tiết kiệm đúng 75% dung lượng VRAM**.
+* **Cơ chế:** Chuyển đổi định dạng hình ảnh thô không nén (*Raw RGBA32* = 4 bytes/pixel) sang các định dạng nén khối phần hardware của GPU (*DirectDraw Surface DDS / DXT5* hoặc *WebP*). Giúp giảm từ 4 bytes/pixel xuống còn 1 byte/pixel, **tiết kiệm đúng 75% dung lượng VRAM**.
+
+### 2.6. Cơ Chế Quản Lý Bộ Nhớ C++ Hiện Đại: Con Trỏ Thông Minh (Smart Pointers)
+Trong C++ kinh điển (C++03 trở về trước), lập trình viên phải tự quản lý bộ nhớ thủ công bằng cặp toán tử `new` và `delete`. Đây là nguyên nhân hàng đầu gây ra lỗi rò rỉ bộ nhớ (*Memory Leak*) hoặc trỏ vào vùng nhớ rác (*Dangling Pointer / Crash*). 
+
+Dự án này tuân thủ chuẩn **C++17 hiện đại** và nguyên lý **RAII (Resource Acquisition Is Initialization)**: tuyệt đối không dùng toán tử `delete` thủ công mà ủy thác việc quản lý vòng đời bộ nhớ cho **Bộ ba Con trỏ thông minh (Smart Pointers)** trong thư viện chuẩn `<memory>`:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          HỆ THỐNG CON TRỎ THÔNG MINH                         │
+├──────────────────────┬──────────────────────┬───────────────────────────────┤
+│    unique_ptr<T>     │    shared_ptr<T>     │         weak_ptr<T>           │
+│ (Con trỏ độc quyền)  │   (Con trỏ mạnh)     │        (Con trỏ yếu)          │
+├──────────────────────┼──────────────────────┼───────────────────────────────┤
+│ - Sở hữu DUY NHẤT    │ - Đồng sở hữu        │ - Tham chiếu không sở hữu     │
+│ - Không cho copy     │ - Đếm tham chiếu     │ - Không tăng strong_count     │
+│ - Tự hủy khi ra scope│   (strong_count)     │ - Phải qua .lock() để lấy data│
+│                      │ - Hủy khi count == 0 │ - Tránh rò rỉ & chu trình lặp │
+└──────────────────────┴──────────────────────┴───────────────────────────────┘
+```
+
+#### A. Con trỏ thô (Raw Pointer `T*`) — Nguồn Gốc Của Hiểm Họa
+* **Bản chất:** Chỉ đơn thuần lưu trữ một địa chỉ ô nhớ số nguyên (như `0x00A1F4B0`).
+* **Hạn chế:**
+  1. **Không có cơ chế tự dọn dẹp:** Nếu lập trình viên quên viết lệnh `delete ptr;`, vùng RAM đó sẽ bị chiếm dụng vĩnh viễn cho đến khi tắt máy (*Memory Leak*).
+  2. **Lỗi giải phóng sớm (*Dangling Pointer*):** Nếu đối tượng A `delete` vùng nhớ, trong khi đối tượng B vẫn đang giữ con trỏ trỏ tới vùng đó và gọi hàm $\implies$ chương trình lập tức bị **Segmentation Fault / Crash**.
+  3. **Lỗi giải phóng 2 lần (*Double Free*):** Hai đối tượng cùng gọi `delete` trên một địa chỉ ô nhớ làm sập hệ điều hành.
+
+#### B. Con trỏ độc quyền (`std::unique_ptr<T>`) — Zero-Cost Abstraction
+* **Bản chất:** Đại diện cho quyền sở hữu duy nhất (*Exclusive Ownership*). Tại một thời điểm, chỉ có **đúng một con trỏ duy nhất** được phép trỏ tới và sở hữu đối tượng.
+* **Đặc tính kỹ thuật:**
+  * **Cấm sao chép:** Toán tử copy bị khóa (`deleted copy constructor`). Không thể gán `p2 = p1`.
+  * **Chỉ cho phép chuyển giao (Move Semantics):** Phải dùng `std::move(p1)` để chuyển toàn bộ quyền sở hữu sang cho con trỏ mới, biến `p1` thành `nullptr`.
+  * **Tự động hủy:** Khi `unique_ptr` đi ra khỏi tầm vực (hết khối lệnh `{}` hoặc đối tượng cha bị hủy), nó tự động gọi `delete` giải phóng vùng nhớ mà không tốn thêm bất kỳ byte chi phí quản lý nào (*Zero-overhead*).
+* **Ứng dụng cụ thể trong dự án:**
+  * Nằm tại `GameScene.hpp`:
+    ```cpp
+    vector<unique_ptr<GameObject>> entities;
+    ```
+  * Màn chơi (`GameScene`) là chủ sở hữu tối cao và duy nhất của danh sách các thực thể quái vật. Khi một quái vật chết hoặc khi người dùng bấm phím `[C]` để dọn sạch (`entities.clear()`), toàn bộ các `unique_ptr` bị hủy, tự động kích hoạt hàm hủy của `GameObject` tức thì.
+
+#### C. Con trỏ mạnh / Con trỏ chia sẻ (`std::shared_ptr<T>`) — Shared Ownership
+* **Bản chất:** Cho phép **nhiều đối tượng khác nhau cùng chia sẻ quyền sở hữu** trên một tài nguyên duy nhất.
+* **Cơ chế Control Block & Đếm tham chiếu (Reference Counting):**
+  * Khi tạo bằng `make_shared<T>()`, hệ điều hành cấp phát đối tượng kèm theo một khối điều khiển (*Control Block*) chứa biến đếm `strong_count` (ban đầu bằng 1).
+  * Mỗi khi có một đối tượng mới copy con trỏ này, `strong_count` tự động tăng lên 1 (`use_count()++`).
+  * Mỗi khi một đối tượng sở hữu bị hủy (ra khỏi scope hoặc bị xóa), `strong_count` tự động giảm đi 1 (`use_count()--`).
+  * **Nguyên lý vàng:** Khi và chỉ khi `strong_count == 0` (không còn bất kỳ ai trên toàn bộ hệ thống sử dụng tài nguyên này nữa), khối nhớ của tài nguyên đó mới thực sự bị giải phóng khỏi RAM/VRAM.
+* **Ứng dụng cụ thể trong dự án:**
+  * Nằm tại `GameObject.hpp`:
+    ```cpp
+    shared_ptr<IAsset> asset; // Hàng ngàn quái cùng giữ chung con trỏ này
+    ```
+  * Nhờ `shared_ptr`, $1.000$ quái vật cùng loại đều giữ chung con trỏ trỏ tới 1 bản gốc `TextureAsset`. Chỉ cần còn ít nhất 1 con quái sống trên màn hình, Texture vẫn an toàn tồn tại. Khi tất cả quái vật chết hết, `strong_count` rơi về 0, kích hoạt dọn dẹp bộ nhớ.
+
+#### D. Con trỏ yếu (`std::weak_ptr<T>`) — Người Quan Sát Thông Minh
+* **Bản chất:** Là một con trỏ "quan sát" (*Non-owning Observer*) trỏ vào đối tượng đang được quản lý bởi `shared_ptr`, nhưng **hoàn toàn KHÔNG làm tăng biến đếm tham chiếu** (`strong_count`).
+* **Tại sao không thể truy cập trực tiếp `weak_ptr->data`?**
+  * Vì `weak_ptr` không sở hữu đối tượng, đối tượng có thể bị giải phóng bất cứ lúc nào bởi luồng khác.
+  * Muốn sử dụng, lập trình viên bắt buộc phải dùng hàm `.lock()`:
+    ```cpp
+    shared_ptr<IAsset> liveAsset = weakAsset.lock();
+    if (liveAsset) {
+        // Đối tượng còn sống an toàn, dùng liveAsset thoải mái!
+    } else {
+        // Đối tượng đã bị hủy trước đó (vùng nhớ đã giải phóng)!
+    }
+    ```
+  * Hoặc kiểm tra nhanh xem đối tượng đã "chết" hay chưa bằng: `weakAsset.expired() == true`.
+
+#### E. Tại Sao `AssetManager` Bắt Buộc Phải Dùng `weak_ptr` Thay Vì `shared_ptr`?
+Đây là một trong những câu hỏi phỏng vấn và vấn đáp OOP kinh điển nhất:
+* **Kịch bản sai lầm (Nếu dùng `shared_ptr` cho Cache Registry):**
+  ```cpp
+  // GIẢ SỬ DÙNG SAI:
+  unordered_map<string, shared_ptr<IAsset>> cacheRegistry;
+  ```
+  1. Khi quái vật đầu tiên sinh ra, `cacheRegistry` lưu một `shared_ptr`. Biến đếm tham chiếu lúc này là `strong_count = 2` (1 từ Cache, 1 từ quái vật).
+  2. Người chơi tiêu diệt toàn bộ quái vật trên màn hình $\implies$ Các con quái bị hủy, nhả con trỏ ra.
+  3. Biến đếm giảm từ $2 \to 1$.
+  4. **Hậu quả thảm khốc:** Vì `cacheRegistry` vẫn đang giữ 1 `shared_ptr`, `strong_count` không bao giờ rơi về 0! Tài nguyên nặng hàng trăm MB RAM/VRAM sẽ bị **giam giữ vĩnh viễn trong bộ nhớ** dù trong game không còn một đối tượng nào sử dụng (*Hiện tượng Zombie Assets / Leak*).
+* **Kịch bản chuẩn xác (Dự án dùng `weak_ptr`):**
+  ```cpp
+  // CHUẨN MỰC THIẾT KẾ:
+  unordered_map<string, weak_ptr<IAsset>> cacheRegistry;
+  ```
+  1. `AssetManager` chỉ lưu `weak_ptr`, `strong_count` của tài nguyên chỉ bằng đúng số lượng quái vật đang sống trên màn hình.
+  2. Khi người chơi xóa hết quái vật (bấm `[C]`), toàn bộ `shared_ptr` bị hủy $\implies$ `strong_count` rơi về đúng **0**.
+  3. `TextureAsset` tự động giải phóng toàn bộ 4 MB RAM ngay lập tức.
+  4. Lúc này, mục trong `cacheRegistry` tự động chuyển sang trạng thái hết hạn (`expired() == true`). Hàm `cleanDeadReferences()` của `AssetManager` chỉ việc quét và xóa các key hết hạn, bộ nhớ sạch bóng 100%.
+
+#### F. Bảng Tổng Hợp So Sánh Các Loại Con Trỏ
+
+| Tiêu chí so sánh | Con trỏ thô (`T*`) | `std::unique_ptr<T>` | `std::shared_ptr<T>` | `std::weak_ptr<T>` |
+| :--- | :--- | :--- | :--- | :--- |
+| **Quyền sở hữu (Ownership)** | Không xác định (Tự do) | Độc quyền duy nhất (*Exclusive*) | Đồng sở hữu chia sẻ (*Shared*) | Không sở hữu (*Non-owning*) |
+| **Tăng `strong_count`?** | Không | Không áp dụng | **Có (+1)** | **Không (+0)** |
+| **Cho phép Copy?** | Có | **Cấm tuyệt đối** (Chỉ Move) | Có | Có |
+| **Cách truy cập dữ liệu** | `ptr->method()` | `uPtr->method()` | `sPtr->method()` | Phải gọi `.lock()` chuyển thành `shared_ptr` |
+| **Chi phí bộ nhớ (Overhead)** | 0 byte | 0 byte | Control Block (~16-24 bytes) | Trỏ vào chung Control Block |
+| **Vị trí áp dụng trong đồ án** | Không sử dụng | `GameScene::entities` | `GameObject::asset` | `AssetManager::cacheRegistry` |
 
 ---
 
