@@ -8,8 +8,8 @@ GameObject::GameObject(int id, const string& name, const string& type,
                        shared_ptr<IAsset> visual,
                        shared_ptr<IAsset> sound,
                        float x, float y, float vx, float vy, float s)
-    : id(id), name(name), monsterType(type), visualAsset(visual), soundAsset(sound),
-      posX(x), posY(y), speedX(vx), speedY(vy), scale(s) {
+    : id(id), name(name), monsterType(type), posX(x), posY(y), speedX(vx), speedY(vy),
+      scale(s), visualAsset(move(visual)), soundAsset(move(sound)) {
 }
 
 void GameObject::update(float dt, float screenWidth, float screenHeight) {

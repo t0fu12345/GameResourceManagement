@@ -12,6 +12,11 @@ enum class AssetType {
     AUDIO_CLIP
 };
 
+enum class LoadMode {
+    SYNCHRONOUS,
+    ASYNCHRONOUS
+};
+
 // Interface co so cho moi tai nguyen trong game (Game Asset)
 class IAsset {
 public:
@@ -34,6 +39,10 @@ public:
 
     // Dung luong bo nho chiem dung (tinh bang bytes)
     virtual size_t getSizeBytes() const = 0;
+
+    // Dung luong duoc theo doi rieng de Dashboard phan biet RAM va VRAM uoc tinh.
+    virtual size_t getRamSizeBytes() const = 0;
+    virtual size_t getVramSizeBytes() const = 0;
 
     // Loai tai nguyen
     virtual AssetType getType() const = 0;

@@ -4,6 +4,8 @@
 #include "raylib.h"
 #include <string>
 #include <memory>
+#include <vector>
+#include <cstdint>
 
 using namespace std;
 
@@ -25,8 +27,13 @@ public:
     void play() override;
     bool isLoaded() const override;
     size_t getSizeBytes() const override;
+    size_t getRamSizeBytes() const override;
+    size_t getVramSizeBytes() const override;
     AssetType getType() const override;
     string getPath() const override;
+
+    bool loadSamples(const string& path, unsigned int sampleRate, unsigned int channels,
+                     const vector<int16_t>& samples);
 
     // Tao mot am thanh placeholder (im lang hoac tieng bip ngan)
     static shared_ptr<AudioAsset> createSilentPlaceholder();

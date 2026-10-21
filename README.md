@@ -8,18 +8,18 @@ Dự án đồ án môn **Lập Trình Hướng Đối Tượng (OOP)** - Viết
 
 1. **Singleton Pattern (`AssetManager`)**:
    - Quản lý Cache Registry duy nhất toàn cục.
-   - Sử dụng `unordered_map<string, weak_ptr<IAsset>>` kết hợp **Reference Counting** tự động dọn dẹp bộ nhớ khi không còn đối tượng nào tham chiếu (`weak_ptr::expired() == true`).
+   - `AssetCache` kết hợp weak registry để quan sát reference count và strong resident cache để LRU có thể giữ/evict tài nguyên thật.
 2. **Flyweight Pattern (`IAsset` & `GameObject`)**:
    - Tách biệt **Intrinsic State** nặng (Texture 2D, 3D Mesh, Audio Buffer) và **Extrinsic State** nhẹ (X, Y, vận tốc, góc quay trong `GameObject`).
    - Hàng ngàn thực thể quái vật dùng chung 1 con trỏ `shared_ptr<IAsset>`, tiết kiệm >90% RAM/VRAM.
 3. **Proxy Pattern (`AssetProxy`)**:
-   - Đóng vai trò **Virtual Proxy** / **Lazy Loading**: hiển thị hình ảnh tạm thời (*Placeholder*) và nạp dữ liệu thật trên luồng ngầm (*Background Thread*) không gây đứng hình màn hình chính (anti-stuttering).
+   - **Virtual Proxy / Lazy Loading** chỉ bắt đầu khi `render()`/`play()` được gọi. Hai worker đọc và giải mã dữ liệu CPU; main thread upload tối đa 2 asset hoặc 2ms mỗi frame.
 4. **Cache Engine & LRU Eviction**:
    - Thuật toán LRU dọn dẹp các tài sản ít dùng nhất khi bộ nhớ vượt ngưỡng.
 5. **Asset Transcoder (`AssetTranscoder`)**:
-   - Mô phỏng và chuyển mã nén texture GPU (Raw RGBA $\to$ DDS/DXT5/WebP) giúp tiết kiệm 75-80% VRAM.
+   - Mô phỏng tỷ lệ chuyển mã nén texture GPU (Raw RGBA $\to$ DDS/DXT5/WebP); kết quả được ghi rõ là số liệu ước tính.
 6. **Memory Profiler Dashboard**:
-   - Bảng đo đạc thời gian thực ngay trên màn hình game: RAM vật lý của hệ thống (OS Windows API `GetProcessMemoryInfo`), FPS, Frame Time, Cache Count.
+   - Hiển thị Process RAM, Asset RAM, VRAM ước tính, FPS, frame time, cache hit/miss, job đang tải và số lần eviction. Profiler có backend Windows/Linux/macOS.
 
 ---
 
@@ -36,6 +36,7 @@ Khi khởi chạy cửa sổ game 1280x720, bạn có thể tương tác bằng 
 | **`[2]`** | **Bật/Tắt Proxy (Async)**: Bật để nạp ngầm mượt mà 60 FPS, tắt để thấy hiện tượng giật lag khi nạp đồng bộ. |
 | **`[3]`** | **Kích hoạt LRU Evict**: Thủ công dọn dẹp các asset ít dùng nhất trong Cache Registry. |
 | **`[4]`** | **Transcoder Nén VRAM**: Chạy thử nghiệm nén texture sang định dạng GPU tối ưu. |
+| **`[5]`** | **Benchmark 1.000 object**: Xóa scene và sinh 1.000 entity với Flyweight + Async Proxy; không cho duplicate để tránh OOM. |
 | **`[P]`** | **Phát Âm Thanh SFX**: Thử nghiệm phương thức `play()` của `AudioAsset`. |
 | **`[F11]`** | **Bật / Tắt Toàn màn hình (Fullscreen Toggle)**. |
 
@@ -53,8 +54,11 @@ Chạy file script [run.bat](file:///c:/Users/PC/OneDrive%20-%20National%20Econo
 ```powershell
 cmake -B build -G "Ninja"
 cmake --build build
+ctest --test-dir build --output-on-failure
 .\build\GameAssetManager.exe
 ```
+
+Trên Linux/macOS, cài Raylib 5.5 rồi chạy `sh run.sh`. CMake tự dùng Raylib bundle trên Windows và `find_package(raylib)` trên các nền tảng còn lại.
 
 ---
 
@@ -78,12 +82,12 @@ Phần dưới đây mô tả chi tiết bản chất kỹ thuật OOP và hiệ
 | Trạng thái | Cơ chế bên trong | Trực quan trên màn hình Game |
 | :--- | :--- | :--- |
 | **Khi TẮT Proxy (`[OFF]`)** | **Nạp đồng bộ (Blocking Load)**: Quá trình đọc I/O và giải nén tài nguyên diễn ra trực tiếp trên Main Thread (luồng vẽ của Game Loop), khiến CPU bị nghẽn. | - Mỗi lần bấm spawn 50 quái vật, toàn bộ màn hình game bị **đóng băng / khựng lại (Lag Spike / Freeze)** trong khoảng 1 - 1.5 giây.<br>- Chỉ số **FPS tụt thẳng đứng từ 60 FPS xuống còn 0 - 15 FPS**, các quái vật đang di chuyển bị giật đứng yên chớp nhoáng.<br>- Bảng trạng thái hiển thị: `2. Proxy: [OFF] Blocking` (màu đỏ). |
-| **Khi BẬT Proxy (`[ON]`)** | **Nạp bất đồng bộ (Virtual Proxy)**: Main Thread lập tức tạo `AssetProxy` với `PlaceholderAsset` siêu nhẹ (~1KB) và đẩy tác vụ I/O xuống luồng phụ `std::async`. Sau khi xong sẽ hoán đổi (*atomic swap*) an toàn trên Main Thread. | - Khi spawn 50 quái vật, game **chạy mượt mà tuyệt đối 60 FPS**, không hề có giật lag.<br>- Trong 1.2 giây đầu tiên, quái vật xuất hiện ngay dưới dạng **Bóng ma mờ ảo (Placeholder Ghost)** kèm biểu tượng xoay và nhãn vàng `LOAD...` trên đầu.<br>- Sau 1.2 giây, khi nạp xong, bóng ma tự động biến hình mượt mà thành quái vật sắc nét hoàn chỉnh (mắt, sừng, miệng máu riêng biệt).<br>- Bảng trạng thái hiển thị: `2. Proxy: [ON] Async/Lazy` (màu xanh lá). |
+| **Khi BẬT Proxy (`[ON]`)** | **Nạp bất đồng bộ (Virtual Proxy)**: Proxy hiển thị placeholder; thread pool đọc/giải mã file trên CPU và hàng đợi main-thread upload theo ngân sách mỗi frame. | - Scene tiếp tục phản hồi trong khi asset ở trạng thái `QUEUED/LOADING/CPU_READY`.<br>- Nhãn `LOAD...` biến mất sau khi upload hoàn tất.<br>- Dashboard cho biết số job đang tải; FPS thực tế phụ thuộc phần cứng và workload. |
 
 ---
 
 ### 4.3. Mẫu Singleton & Cơ Chế Đếm Tham Chiếu Reference Counting (Phím `[C]`)
-* **Bản chất kỹ thuật**: `AssetManager` là điểm truy cập duy nhất điều phối tài nguyên thông qua Cache Registry sử dụng `unordered_map<string, weak_ptr<IAsset>>`. Tránh bẫy rò rỉ bộ nhớ kinh điển khi Cache lưu `shared_ptr`.
+* **Bản chất kỹ thuật**: `AssetManager` sở hữu `AssetCache`; weak registry theo dõi vòng đời còn resident cache giữ tài nguyên để LRU tái sử dụng và chỉ evict khi không còn `GameObject` sử dụng.
 * **Thao tác kiểm chứng**:
   1. Khi trên màn hình đang có hàng trăm quái vật và chiếm lượng RAM lớn, nhấn phím **`[C]`**.
   2. Toàn bộ danh sách `GameObject` bị hủy $\implies$ số lượng tham chiếu `shared_ptr` trỏ tới các asset rơi về 0.

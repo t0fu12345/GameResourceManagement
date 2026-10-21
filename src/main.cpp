@@ -16,7 +16,8 @@ int main() {
     InitAudioDevice();
     SetTargetFPS(60);
 
-    // 2. Khoi tao GameScene
+    // Asset/GameScene phai bi huy truoc khi Audio/Window context dong.
+    {
     GameScene scene;
     scene.initialize();
 
@@ -30,6 +31,7 @@ int main() {
     cout << " [2]                    : Bat / Tat Mau Virtual Proxy (Async Loading)\n";
     cout << " [3]                    : Kich hoat don dep Cache LRU\n";
     cout << " [4]                    : Kich hoat Transcoder nen Texture giam VRAM\n";
+    cout << " [5]                    : Benchmark 1.000 entity (Flyweight + Proxy)\n";
     cout << " [P]                    : Phat am thanh SFX mau\n";
     cout << " [F11]                  : Toan man hinh (Fullscreen)\n";
     cout << "=======================================================\n";
@@ -66,6 +68,9 @@ int main() {
         if (IsKeyPressed(KEY_FOUR)) {
             scene.triggerTranscoderDemo();
         }
+        if (IsKeyPressed(KEY_FIVE)) {
+            scene.runThousandObjectDemo(currentWidth, currentHeight);
+        }
         if (IsKeyPressed(KEY_P)) {
             scene.playAttackSound();
         }
@@ -79,7 +84,11 @@ int main() {
         EndDrawing();
     }
 
-    // 4. Don dep va dong ung dung
+    scene.shutdown();
+    AssetManager::getInstance().shutdown();
+    }
+
+    // 4. Chi dong context sau khi tat ca asset Raylib da duoc unload.
     CloseAudioDevice();
     CloseWindow();
 

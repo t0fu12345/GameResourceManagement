@@ -1,0 +1,31 @@
+name: C++ build and tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Raylib (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libraylib-dev
+      - name: Install Raylib (macOS)
+        if: runner.os == 'macOS'
+        run: brew install raylib
+      - name: Configure (Windows MinGW)
+        if: runner.os == 'Windows'
+        run: cmake -S . -B build-ci -G Ninja -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Configure (Unix)
+        if: runner.os != 'Windows'
+        run: cmake -S . -B build-ci -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build
+        run: cmake --build build-ci --config Release
+      - name: Test
+        run: ctest --test-dir build-ci -C Release --output-on-failure

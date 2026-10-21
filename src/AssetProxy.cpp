@@ -1,139 +1,118 @@
 #include "AssetProxy.hpp"
-#include "TextureAsset.hpp"
-#include "MeshAsset.hpp"
 #include "AudioAsset.hpp"
+#include "MeshAsset.hpp"
+#include "TextureAsset.hpp"
+#include "raylib.h"
 #include <iostream>
-#include <thread>
-#include <chrono>
 
 using namespace std;
 
-AssetProxy::AssetProxy(const string& path, AssetType type, shared_ptr<IAsset> placeholder, int delayMs)
-    : assetPath(path), assetType(type), placeholderAsset(placeholder), simulatedDelayMs(delayMs) {
-
-    // Neu chua co placeholder, tao placeholder tuong ung voi loai tai nguyen
+AssetProxy::AssetProxy(const string& path, AssetType type, AssetLoadService* service,
+                       shared_ptr<IAsset> placeholder, int delayMs)
+    : assetPath(path), assetType(type), placeholderAsset(move(placeholder)),
+      loadService(service) {
+    (void)delayMs; // Retained for source compatibility; real disk I/O replaces simulated delay.
     if (!placeholderAsset) {
-        if (assetType == AssetType::TEXTURE_2D) {
-            placeholderAsset = TextureAsset::createPlaceholder(48, 48, GRAY);
-        } else if (assetType == AssetType::MESH_3D) {
-            placeholderAsset = MeshAsset::createCubePlaceholder();
-        } else {
-            placeholderAsset = AudioAsset::createSilentPlaceholder();
-        }
+        if (assetType == AssetType::TEXTURE_2D) placeholderAsset = TextureAsset::createPlaceholder(48, 48, GRAY);
+        else if (assetType == AssetType::MESH_3D) placeholderAsset = MeshAsset::createCubePlaceholder();
+        else placeholderAsset = AudioAsset::createSilentPlaceholder();
     }
 }
 
-AssetProxy::~AssetProxy() {
-    unload();
-}
+AssetProxy::~AssetProxy() { unload(); }
 
 bool AssetProxy::load(const string& path) {
     assetPath = path;
+    // Lazy loading: load() only configures the proxy. render()/play() starts I/O.
+    return loadService != nullptr;
+}
 
-    if (isLoading.load() || isReady.load()) {
-        return true;
+void AssetProxy::ensureLoadStarted() {
+    AssetLoadState expected = AssetLoadState::UNLOADED;
+    if (!state.compare_exchange_strong(expected, AssetLoadState::QUEUED)) return;
+    if (!loadService) {
+        state.store(AssetLoadState::FAILED);
+        return;
     }
-
-    isLoading.store(true);
-
-    // Luong ngam (Background Worker Thread) mo phong thoi gian doc du lieu I/O / Mang Cloud
-    loadFuture = async(launch::async, [this]() -> bool {
-        if (simulatedDelayMs > 0) {
-            this_thread::sleep_for(chrono::milliseconds(simulatedDelayMs));
-        }
-        return true;
-    });
-
-    return true;
+    loadTicket = loadService->submit(assetPath, assetType);
+    state.store(loadTicket->state.load());
 }
 
 void AssetProxy::unload() {
     lock_guard<mutex> lock(swapMutex);
-    if (realAsset) {
-        realAsset->unload();
-        realAsset.reset();
-    }
-    if (placeholderAsset) {
-        placeholderAsset->unload();
-        placeholderAsset.reset();
-    }
-    isReady.store(false);
-    isLoading.store(false);
+    realAsset.reset();
+    placeholderAsset.reset();
+    loadTicket.reset();
+    state.store(AssetLoadState::CANCELLED);
 }
 
 void AssetProxy::checkAndSwap() {
-    if (isReady.load()) return;
+    ensureLoadStarted();
+    shared_ptr<AssetLoadTicket> ticket;
+    {
+        lock_guard<mutex> lock(swapMutex);
+        ticket = loadTicket;
+    }
+    if (!ticket) return;
+    AssetLoadState ticketState = ticket->state.load();
+    state.store(ticketState);
+    if (ticketState != AssetLoadState::READY) return;
 
-    if (loadFuture.valid()) {
-        auto status = loadFuture.wait_for(chrono::milliseconds(0));
-        if (status == future_status::ready) {
-            loadFuture.get(); // Hoan tat future
-
-            lock_guard<mutex> lock(swapMutex);
-            // THUC HIEN KHOI TAO VA NAP TEXTURE TREN MAIN THREAD (Bat buoc cho OpenGL / Raylib)
-            if (assetType == AssetType::TEXTURE_2D) {
-                realAsset = make_shared<TextureAsset>();
-            } else if (assetType == AssetType::MESH_3D) {
-                realAsset = make_shared<MeshAsset>();
-            } else {
-                realAsset = make_shared<AudioAsset>();
-            }
-
-            realAsset->load(assetPath);
-            isReady.store(true);
-            isLoading.store(false);
-            cout << "[AssetProxy] SWAPPED on Main Thread: Placeholder -> Real Asset for [" << assetPath << "]\n";
+    lock_guard<mutex> lock(swapMutex);
+    if (!realAsset) {
+        lock_guard<mutex> ticketLock(ticket->mutex);
+        realAsset = ticket->asset;
+        if (realAsset) {
+            placeholderAsset.reset();
+            cout << "[AssetProxy] Main-thread upload ready: " << assetPath << "\n";
         }
     }
 }
 
 void AssetProxy::render(float posX, float posY, float scale) {
     checkAndSwap();
-
     lock_guard<mutex> lock(swapMutex);
-    if (isReady.load() && realAsset) {
+    if (realAsset) {
         realAsset->render(posX, posY, scale);
     } else if (placeholderAsset) {
         placeholderAsset->render(posX, posY, scale);
-
-        // Hien thi bieu tuong LOADING truc quan tren dau quai vat
-        if (isLoading.load()) {
+        AssetLoadState current = state.load();
+        if (current == AssetLoadState::QUEUED || current == AssetLoadState::LOADING ||
+            current == AssetLoadState::CPU_READY) {
             DrawCircle(static_cast<int>(posX + 24 * scale), static_cast<int>(posY - 4), 3, YELLOW);
             DrawText("LOAD...", static_cast<int>(posX + 4), static_cast<int>(posY - 12), 9, YELLOW);
+        } else if (current == AssetLoadState::FAILED) {
+            DrawText("FAILED", static_cast<int>(posX + 2), static_cast<int>(posY - 12), 9, RED);
         }
     }
 }
 
 void AssetProxy::play() {
     checkAndSwap();
-
     lock_guard<mutex> lock(swapMutex);
-    if (isReady.load() && realAsset) {
-        realAsset->play();
-    } else if (placeholderAsset) {
-        placeholderAsset->play();
-    }
+    if (realAsset) realAsset->play();
+    else if (placeholderAsset) placeholderAsset->play();
 }
 
-bool AssetProxy::isLoaded() const {
-    return isReady.load();
-}
+bool AssetProxy::isLoaded() const { return state.load() == AssetLoadState::READY; }
 
-size_t AssetProxy::getSizeBytes() const {
+size_t AssetProxy::getSizeBytes() const { return getRamSizeBytes() + getVramSizeBytes(); }
+
+size_t AssetProxy::getRamSizeBytes() const {
     lock_guard<mutex> lock(swapMutex);
-    if (isReady.load() && realAsset) {
-        return realAsset->getSizeBytes();
-    }
-    if (placeholderAsset) {
-        return placeholderAsset->getSizeBytes();
-    }
-    return sizeof(*this);
+    return realAsset ? realAsset->getRamSizeBytes() : (placeholderAsset ? placeholderAsset->getRamSizeBytes() : sizeof(*this));
 }
 
-AssetType AssetProxy::getType() const {
-    return assetType;
+size_t AssetProxy::getVramSizeBytes() const {
+    lock_guard<mutex> lock(swapMutex);
+    return realAsset ? realAsset->getVramSizeBytes() : (placeholderAsset ? placeholderAsset->getVramSizeBytes() : 0);
 }
 
-string AssetProxy::getPath() const {
-    return assetPath;
+AssetType AssetProxy::getType() const { return assetType; }
+string AssetProxy::getPath() const { return assetPath; }
+
+bool AssetProxy::isCurrentlyLoading() const {
+    AssetLoadState current = state.load();
+    return current == AssetLoadState::QUEUED || current == AssetLoadState::LOADING ||
+           current == AssetLoadState::CPU_READY;
 }

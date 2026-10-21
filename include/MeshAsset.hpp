@@ -4,6 +4,7 @@
 #include "raylib.h"
 #include <string>
 #include <memory>
+#include <vector>
 
 using namespace std;
 
@@ -13,6 +14,7 @@ private:
     string filePath;
     Model model3D{};
     size_t memorySize{0};
+    size_t vramSize{0};
     bool loaded{false};
     bool isCustomModel{false};
 
@@ -26,8 +28,11 @@ public:
     void play() override;
     bool isLoaded() const override;
     size_t getSizeBytes() const override;
+    size_t getRamSizeBytes() const override;
+    size_t getVramSizeBytes() const override;
     AssetType getType() const override;
     string getPath() const override;
+    bool loadTriangles(const string& path, const vector<float>& triangleVertices);
 
     // Tao placeholder 3D dang khoi lap phuong hoac wireframe nhe
     static shared_ptr<MeshAsset> createCubePlaceholder();

@@ -81,7 +81,8 @@ classDiagram
         -shared_ptr~IAsset~ realAsset
         -shared_ptr~IAsset~ placeholderAsset
         -atomic~bool~ isLoading
-        -future~bool~ loadTask
+        -AssetLoadState state
+        -shared_ptr~AssetLoadTicket~ ticket
         +load(string path) bool
         +unload() void
         +render(float x, float y, float scale) void
@@ -93,18 +94,34 @@ classDiagram
     }
 
     class AssetManager {
-        -static AssetManager* instance
-        -unordered_map~string, weak_ptr~IAsset~~ cacheRegistry
-        -list~string~ lruList
-        -size_t maxMemoryBudget
-        -size_t currentMemoryUsage
-        -mutex managerMutex
+        -AssetCache cache
+        -AssetLoadService loader
         -AssetManager()
         +static getInstance() AssetManager&
         +getAsset(string path, AssetType type, bool useProxy) shared_ptr~IAsset~
+        +updateAsyncLoads(size_t maxUploads, double budgetMs) void
         +evictLRU(size_t neededBytes) void
-        +cleanDeadReferences() void
+        +collectUnused() size_t
+        +shutdown() void
         +getMemoryStats() MemoryStats
+    }
+
+    class AssetCache {
+        -unordered_map~AssetKey, weak_ptr~IAsset~~ registry
+        -unordered_map~AssetKey, shared_ptr~IAsset~~ residentAssets
+        -list~AssetKey~ lru
+        +find(AssetKey) shared_ptr~IAsset~
+        +insert(AssetKey, shared_ptr~IAsset~) void
+        +evictLRU(size_t neededBytes) size_t
+        +collectUnused() size_t
+    }
+
+    class AssetLoadService {
+        -deque~WorkItem~ pending
+        -vector~thread~ workers
+        +submit(string path, AssetType type) AssetLoadTicket
+        +pumpMainThreadUploads(size_t max, double budgetMs) size_t
+        +shutdown() void
     }
 
     class AssetTranscoder {
@@ -139,6 +156,9 @@ classDiagram
     
     AssetProxy o-- IAsset : Wraps (Real & Placeholder)
     AssetManager --> IAsset : Manages Lifecycle & Cache
+    AssetManager *-- AssetCache : Owns cache policy
+    AssetManager *-- AssetLoadService : Owns worker pool
+    AssetProxy --> AssetLoadService : Submits lazy job
     AssetManager --> AssetTranscoder : Invokes for VRAM Optimization
     GameObject o-- IAsset : References (Flyweight Context)
     GameScene --> AssetManager : Requests Assets
@@ -168,5 +188,5 @@ classDiagram
 - **Giải pháp**:
   - `AssetProxy` implement cùng interface `IAsset`.
   - Khi chưa nạp xong, `render()` sẽ vẽ `placeholderAsset` (ảnh mờ nhẹ hoặc icon loading xoay).
-  - Luồng ngầm (`std::thread` / `std::async`) nạp `realAsset`.
+  - `AssetLoadService` dùng worker pool đọc/giải mã CPU; main thread upload theo ngân sách mỗi frame.
   - Khi hoàn thành, con trỏ được tráo đổi (`swap`) trong một thao tác an toàn luồng, game tiếp tục chạy 60 FPS mượt mà.

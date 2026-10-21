@@ -1,6 +1,7 @@
 #include "AssetTranscoder.hpp"
 #include <iostream>
 #include <sstream>
+#include <algorithm>
 
 using namespace std;
 
@@ -37,5 +38,6 @@ TranscodeResult AssetTranscoder::transcodeTexture(const string& inputPath, const
 }
 
 size_t AssetTranscoder::calculateCompressedSize(size_t rawBytes, float ratio) {
+    ratio = clamp(ratio, 0.0f, 1.0f);
     return static_cast<size_t>(rawBytes * ratio);
 }

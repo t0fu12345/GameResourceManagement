@@ -22,6 +22,7 @@ private:
     // Thong tin thong bao tren man hinh
     string statusMessage{"He thong san sang! Nhan [SPACE] de spawn 50 quai vat."};
     float statusTimer{5.0f};
+    bool shutdownComplete{false};
 
     // Danh sach cac asset mau
     vector<string> monsterTypes{"zombie", "demon", "dragon", "robot"};
@@ -31,6 +32,7 @@ public:
     ~GameScene();
 
     void initialize();
+    void shutdown();
     void update(float dt, float screenWidth, float screenHeight);
     void draw(float screenWidth, float screenHeight);
 
@@ -42,6 +44,7 @@ public:
     void triggerLRUEvict();
     void triggerTranscoderDemo();
     void playAttackSound();
+    void runThousandObjectDemo(float screenWidth, float screenHeight);
 
     // Getters
     size_t getEntityCount() const { return entities.size(); }

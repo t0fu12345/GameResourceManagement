@@ -23,7 +23,7 @@ bool AudioAsset::load(const string& path) {
     }
 
     // Neu khong co file vat ly, tao am thanh song Sin (Beep/SFX) mo phong bang Raylib
-    Wave wave = { 0 };
+    Wave wave{};
     if (IsAudioDeviceReady()) {
         // Tao am thanh ngan 0.1s tan so 520Hz (am thanh tan cong/hit)
         int sampleRate = 22050;
@@ -58,16 +58,33 @@ bool AudioAsset::load(const string& path) {
     return true;
 }
 
+bool AudioAsset::loadSamples(const string& path, unsigned int sampleRate, unsigned int channels,
+                             const vector<int16_t>& samples) {
+    if (samples.empty() || sampleRate == 0 || channels == 0) return false;
+    filePath = path;
+    Wave wave{};
+    wave.frameCount = static_cast<unsigned int>(samples.size() / channels);
+    wave.sampleRate = sampleRate;
+    wave.sampleSize = 16;
+    wave.channels = channels;
+    wave.data = const_cast<int16_t*>(samples.data());
+    soundData = LoadSoundFromWave(wave);
+    loaded = soundData.frameCount > 0;
+    memorySize = samples.size() * sizeof(int16_t);
+    return loaded;
+}
+
 void AudioAsset::unload() {
     if (loaded && soundData.frameCount > 0 && IsAudioDeviceReady()) {
         UnloadSound(soundData);
         soundData.frameCount = 0;
-        loaded = false;
         cout << "[AudioAsset] Unloaded Audio: " << filePath << "\n";
     }
+    loaded = false;
+    memorySize = 0;
 }
 
-void AudioAsset::render(float posX, float posY, float scale) {
+void AudioAsset::render(float, float, float) {
     // Audio khong ve truc tiep len man hinh
 }
 
@@ -84,6 +101,9 @@ bool AudioAsset::isLoaded() const {
 size_t AudioAsset::getSizeBytes() const {
     return memorySize;
 }
+
+size_t AudioAsset::getRamSizeBytes() const { return memorySize; }
+size_t AudioAsset::getVramSizeBytes() const { return 0; }
 
 AssetType AudioAsset::getType() const {
     return AssetType::AUDIO_CLIP;

@@ -66,12 +66,12 @@ Trong phát triển game và đồ họa máy tính hiện đại, **tài nguyê
 ### 2.1. Mẫu Singleton (`AssetManager`) — Điểm Điều Phối Duy Nhất & Đếm Tham Chiếu
 * **Mục đích:** Đảm bảo toàn bộ ứng dụng chỉ tồn tại **duy nhất một thể hiện (Instance)** quản lý kho tài nguyên, tập trung hóa bộ nhớ đệm (*Cache Registry*) và tránh xung đột dữ liệu giữa các cảnh chơi.
 * **Cơ chế Reference Counting (Đếm tham chiếu) thông minh:**
-  * Thay vì lưu trữ con trỏ mạnh `shared_ptr` (khiến tài nguyên sống mãi mãi và gây rò rỉ bộ nhớ), `AssetManager` quản lý cache bằng:
+  * `AssetManager` tách hai trách nhiệm: weak registry quan sát reference count và resident cache giữ `shared_ptr` có giới hạn để thuật toán LRU tái sử dụng/evict tài nguyên:
     ```cpp
     unordered_map<string, weak_ptr<IAsset>> cacheRegistry;
     ```
   * `weak_ptr` không làm tăng biến đếm tham chiếu (*Reference Count*).
-  * Khi tất cả `GameObject` bị hủy $\implies$ `shared_ptr` rơi về 0 $\implies$ `weak_ptr::expired() == true`. Hàm `cleanDeadReferences()` sẽ tự động dọn sạch vùng nhớ khỏi RAM/VRAM ngay lập tức.
+  * Khi tất cả `GameObject` bị hủy, resident entry có `use_count() == 1` và `collectUnused()` có thể xóa nó; weak registry sau đó hết hạn mà không giữ tài nguyên sống vĩnh viễn.
 
 ### 2.2. Mẫu Flyweight (`IAsset` & `GameObject`) — Tối Ưu Hóa RAM/VRAM Vượt Trội
 * **Mục đích:** Cho phép hàng ngàn thực thể cùng loại cùng xuất hiện mà không làm phình dung lượng bộ nhớ.
@@ -93,8 +93,8 @@ Trong phát triển game và đồ họa máy tính hiện đại, **tài nguyê
 * **Nguyên lý hoạt động (Virtual Proxy / Lazy Loading):**
   1. Khi một đối tượng yêu cầu tài nguyên, `AssetProxy` lập tức trả về một đối tượng đại diện siêu nhẹ chứa **Placeholder** (bóng ma mờ ảo kèm nhãn `LOAD...` màu vàng trên đầu, chỉ tốn vài trăm bytes).
   2. Main Thread **không bị chặn lại một mili-giây nào**, game tiếp tục chạy mượt mà ở 60 FPS.
-  3. Đồng thời, `AssetProxy` kích hoạt một luồng phụ chạy ngầm (`std::async(std::launch::async, ...)`). Luồng này chịu trách nhiệm giả lập hoặc thực hiện việc đọc dữ liệu I/O nặng.
-  4. Khi luồng ngầm hoàn tất, hàm `checkAndSwap()` được gọi trên **Main Thread** để nạp Texture an toàn vào OpenGL/GPU và tráo đổi (*atomic swap*) con trỏ. Bóng ma mờ lập tức biến hình thành quái vật sắc nét hoàn chỉnh mà khung hình không hề bị giật.
+  3. `AssetLoadService` dùng hai worker thread để đọc và giải mã PNG/WAV/OBJ thành dữ liệu CPU. Proxy chỉ submit job ở lần `render()`/`play()` đầu tiên.
+  4. `AssetManager::updateAsyncLoads()` upload tối đa 2 asset hoặc 2ms mỗi frame trên **Main Thread**, sau đó Proxy tráo sang tài nguyên thật. Cơ chế budget tránh dồn nhiều lần upload vào một frame.
 
 ### 2.4. Thuật toán Bộ Nhớ Đệm LRU (Least Recently Used Cache)
 * **Mục đích:** Đảm bảo dung lượng cache không vượt quá giới hạn ngân sách bộ nhớ định trước (`maxMemoryBudget`).
@@ -258,7 +258,7 @@ Dưới đây là các file trung tâm thể hiện toàn bộ tư duy hướng 
 * **Bản chất OOP & Design Patterns:**
   * **Proxy Pattern:** Cùng kế thừa `IAsset` nên có bề ngoài giống hệt `TextureAsset`. Đối tượng bên ngoài (`GameObject`) không cần biết mình đang vẽ qua Proxy hay Real Asset.
   * **Thread Safety:** Dùng `atomic<bool>` và `std::future<bool>` để quản lý tác vụ bất đồng bộ.
-  * **Main-Thread Swap (Bảo đảm an toàn OpenGL):** Luồng ngầm chỉ thực hiện giả lập độ trễ đọc dữ liệu; việc tải texture vào VRAM được thực hiện an toàn trên luồng chính trong hàm `checkAndSwap()`.
+  * **Main-Thread Upload (Bảo đảm an toàn OpenGL):** Worker tạo CPU payload; hàng đợi hoàn tất upload Texture/Sound/Mesh trên luồng chính theo ngân sách mỗi frame.
 * **Đoạn code quan trọng nhất (`src/AssetProxy.cpp`):**
   ```cpp
   void AssetProxy::render(float posX, float posY, float scale) {

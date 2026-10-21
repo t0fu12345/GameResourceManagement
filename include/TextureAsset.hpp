@@ -15,6 +15,7 @@ private:
     string filePath;
     Texture2D textureData{};
     size_t memorySize{0};
+    size_t vramSize{0};
     bool loaded{false};
 
     // Bo nho RAM thuc su cap phat de chung minh su chenh lech RAM khi bat/tat Flyweight
@@ -34,9 +35,12 @@ public:
     void play() override;
     bool isLoaded() const override;
     size_t getSizeBytes() const override;
+    size_t getRamSizeBytes() const override;
+    size_t getVramSizeBytes() const override;
     AssetType getType() const override;
     string getPath() const override;
 
     Texture2D getRawTexture() const;
+    bool loadPixels(const string& path, int width, int height, const vector<uint8_t>& rgbaPixels);
     static shared_ptr<TextureAsset> createPlaceholder(int width, int height, Color color);
 };

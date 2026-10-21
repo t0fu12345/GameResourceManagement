@@ -10,7 +10,7 @@ using namespace std;
 GameScene::GameScene() = default;
 
 GameScene::~GameScene() {
-    clearAllEntities();
+    shutdown();
 }
 
 void GameScene::initialize() {
@@ -18,6 +18,13 @@ void GameScene::initialize() {
     spawnHorde(50);
     statusMessage = "He thong san sang! Nhan [SPACE] hoac [ENTER] de spawn 50 quai vat.";
     statusTimer = 5.0f;
+}
+
+void GameScene::shutdown() {
+    if (shutdownComplete) return;
+    shutdownComplete = true;
+    entities.clear();
+    AssetManager::getInstance().collectUnused();
 }
 
 void GameScene::spawnHorde(int count, float screenWidth, float screenHeight) {
@@ -45,9 +52,10 @@ void GameScene::spawnHorde(int count, float screenWidth, float screenHeight) {
         if (abs(vx) < 25.0f) vx = 50.0f;
         if (abs(vy) < 25.0f) vy = 50.0f;
 
+        int entityId = nextEntityId++;
         auto obj = make_unique<GameObject>(
-            nextEntityId++,
-            type + "_" + to_string(nextEntityId),
+            entityId,
+            type + "_" + to_string(entityId),
             type,
             visualAsset,
             soundAsset,
@@ -81,6 +89,11 @@ void GameScene::clearAllEntities() {
 }
 
 void GameScene::toggleFlyweight() {
+    if (useFlyweight && entities.size() > 200) {
+        statusMessage = "Khong tat Flyweight khi co tren 200 entity: tranh cap phat qua muc/OOM.";
+        statusTimer = 5.0f;
+        return;
+    }
     useFlyweight = !useFlyweight;
 
     // Cap nhat lai tai nguyen cho toan bo quai vat hien co de nguoi dung thay su thay doi RAM tuc thi
@@ -117,8 +130,13 @@ void GameScene::toggleProxy() {
 }
 
 void GameScene::triggerLRUEvict() {
-    AssetManager::getInstance().evictLRU(2 * 1024 * 1024);
-    statusMessage = "Da kich hoat thuat toan LRU Eviction de don dep Cache!";
+    auto& manager = AssetManager::getInstance();
+    size_t before = manager.getMemoryStats().residentEntries;
+    manager.evictLRU(manager.getMemoryBudget());
+    size_t after = manager.getMemoryStats().residentEntries;
+    stringstream ss;
+    ss << "LRU da evict " << (before - after) << " asset; asset dang duoc entity dung se duoc pin.";
+    statusMessage = ss.str();
     statusTimer = 4.0f;
 }
 
@@ -139,7 +157,18 @@ void GameScene::playAttackSound() {
     }
 }
 
+void GameScene::runThousandObjectDemo(float screenWidth, float screenHeight) {
+    entities.clear();
+    AssetManager::getInstance().collectUnused();
+    useFlyweight = true;
+    useProxy = true;
+    spawnHorde(1000, screenWidth, screenHeight);
+    statusMessage = "Benchmark: 1.000 entity, Flyweight ON, Async Proxy ON (duplicate OFF de tranh OOM).";
+    statusTimer = 8.0f;
+}
+
 void GameScene::update(float dt, float screenWidth, float screenHeight) {
+    AssetManager::getInstance().updateAsyncLoads(2, 2.0);
     if (statusTimer > 0.0f) {
         statusTimer -= dt;
     }
@@ -192,9 +221,9 @@ void GameScene::draw(float screenWidth, float screenHeight) {
     auto memStats = AssetManager::getInstance().getMemoryStats();
 
     int startY = static_cast<int>(panelY + 90);
-    int stepY = 32;
-    int labelSize = 21;  // To hon 50% (truoc 13-15)
-    int valSize = 22;    // To hon 50% (truoc 14-16)
+    int stepY = 27;
+    int labelSize = 18;
+    int valSize = 18;
     int colValX = static_cast<int>(panelX + 235);
 
     // Chi so FPS
@@ -208,10 +237,15 @@ void GameScene::draw(float screenWidth, float screenHeight) {
     Color ramColor = (memInfo.workingSetBytes > 150ULL * 1024ULL * 1024ULL) ? RED : Color{255, 185, 60, 255};
     DrawText(MemoryProfiler::formatBytes(memInfo.workingSetBytes).c_str(), colValX, startY, valSize, ramColor);
 
-    // RAM dinh diem (Peak)
+    // Asset RAM duoc theo doi boi cache
     startY += stepY;
-    DrawText("Peak RAM:", static_cast<int>(panelX + 22), startY, labelSize, GRAY);
-    DrawText(MemoryProfiler::formatBytes(memInfo.peakWorkingSetBytes).c_str(), colValX, startY, valSize, WHITE);
+    DrawText("Asset RAM:", static_cast<int>(panelX + 22), startY, labelSize, GRAY);
+    DrawText(MemoryProfiler::formatBytes(memStats.totalAssetRamBytes).c_str(), colValX, startY, valSize, ORANGE);
+
+    // VRAM la uoc tinh tu kich thuoc texture/mesh vi Raylib khong expose tong VRAM.
+    startY += stepY;
+    DrawText("VRAM (estimate):", static_cast<int>(panelX + 22), startY, labelSize, GRAY);
+    DrawText(MemoryProfiler::formatBytes(memStats.totalAssetVramBytes).c_str(), colValX, startY, valSize, SKYBLUE);
 
     // So luong Entity tren man hinh
     startY += stepY;
@@ -223,6 +257,14 @@ void GameScene::draw(float screenWidth, float screenHeight) {
     DrawText("Cache Registry:", static_cast<int>(panelX + 22), startY, labelSize, GRAY);
     DrawText(TextFormat("%d (Live: %d)", static_cast<int>(memStats.totalCachedEntries), static_cast<int>(memStats.activeLivingAssets)), 
              colValX, startY, valSize, GREEN);
+
+    startY += stepY;
+    DrawText("Cache Hit/Miss:", static_cast<int>(panelX + 22), startY, labelSize, GRAY);
+    DrawText(TextFormat("%d / %d", static_cast<int>(memStats.cacheHits), static_cast<int>(memStats.cacheMisses)), colValX, startY, valSize, WHITE);
+
+    startY += stepY;
+    DrawText("Load/Evict:", static_cast<int>(panelX + 22), startY, labelSize, GRAY);
+    DrawText(TextFormat("%d / %d", static_cast<int>(memStats.loadingAssets), static_cast<int>(memStats.evictionCount)), colValX, startY, valSize, YELLOW);
 
     DrawLine(static_cast<int>(panelX + 22), startY + 28, static_cast<int>(panelX + panelW - 22), startY + 28, Color{60, 90, 130, 255});
     startY += 40;
@@ -258,8 +300,8 @@ void GameScene::draw(float screenWidth, float screenHeight) {
 
     // HUONG DAN PHIM BAM (Size 24)
     DrawText("KEYBOARD CONTROLS", static_cast<int>(panelX + 22), startY, 24, Color{100, 200, 255, 255});
-    stepY = 28;
-    int keySize = 19; // To hon 50% (truoc 12-14)
+    stepY = 24;
+    int keySize = 17;
     Color keyColor = Color{235, 235, 235, 255};
 
     startY += stepY;
@@ -274,6 +316,8 @@ void GameScene::draw(float screenWidth, float screenHeight) {
     DrawText("[3]           : Kich hoat LRU Evict", static_cast<int>(panelX + 22), startY, keySize, keyColor);
     startY += stepY;
     DrawText("[4]           : Transcoder Nen VRAM", static_cast<int>(panelX + 22), startY, keySize, keyColor);
+    startY += stepY;
+    DrawText("[5]           : Benchmark 1.000 entity", static_cast<int>(panelX + 22), startY, keySize, keyColor);
     startY += stepY;
     DrawText("[P]           : Phat Am Thanh SFX", static_cast<int>(panelX + 22), startY, keySize, keyColor);
     startY += stepY;

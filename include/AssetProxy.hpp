@@ -4,8 +4,8 @@
 #include <memory>
 #include <string>
 #include <atomic>
-#include <future>
 #include <mutex>
+#include "AssetLoadService.hpp"
 
 using namespace std;
 
@@ -17,16 +17,14 @@ private:
     shared_ptr<IAsset> realAsset;
     shared_ptr<IAsset> placeholderAsset;
 
-    atomic<bool> isLoading{false};
-    atomic<bool> isReady{false};
-    future<bool> loadFuture;
+    AssetLoadService* loadService{nullptr};
+    shared_ptr<AssetLoadTicket> loadTicket;
+    atomic<AssetLoadState> state{AssetLoadState::UNLOADED};
     mutable mutex swapMutex;
 
-    // Do tre mo phong tai tu Disk/Cloud (tinh bang milliseconds)
-    int simulatedDelayMs{1200};
-
 public:
-    AssetProxy(const string& path, AssetType type, shared_ptr<IAsset> placeholder = nullptr, int delayMs = 1200);
+    AssetProxy(const string& path, AssetType type, AssetLoadService* service,
+               shared_ptr<IAsset> placeholder = nullptr, int delayMs = 1200);
     ~AssetProxy() override;
 
     bool load(const string& path) override;
@@ -35,12 +33,18 @@ public:
     void play() override;
     bool isLoaded() const override;
     size_t getSizeBytes() const override;
+    size_t getRamSizeBytes() const override;
+    size_t getVramSizeBytes() const override;
     AssetType getType() const override;
     string getPath() const override;
 
     // Kiem tra tien trinh tai ngam va trao doi (swap) con tro sang tai nguyen that tren main thread
     void checkAndSwap();
 
-    bool isCurrentlyLoading() const { return isLoading.load(); }
-    bool isRealAssetReady() const { return isReady.load(); }
+    bool isCurrentlyLoading() const;
+    bool isRealAssetReady() const { return state.load() == AssetLoadState::READY; }
+    AssetLoadState getLoadState() const { return state.load(); }
+
+private:
+    void ensureLoadStarted();
 };

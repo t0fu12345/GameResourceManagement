@@ -1,172 +1,97 @@
 #include "AssetManager.hpp"
-#include "TextureAsset.hpp"
-#include "MeshAsset.hpp"
-#include "AudioAsset.hpp"
 #include "AssetProxy.hpp"
+#include "AudioAsset.hpp"
+#include "MeshAsset.hpp"
+#include "TextureAsset.hpp"
+#include <chrono>
+#include <filesystem>
 #include <iostream>
 #include <thread>
-#include <chrono>
 
 using namespace std;
 
-AssetManager::AssetManager() {
-    cout << "[AssetManager] Singleton Instance Khoi Tao Thanh Cong.\n";
+AssetManager::AssetManager() : cache(128ULL * 1024ULL * 1024ULL), loader(2) {
+    cout << "[AssetManager] Singleton initialized with two loader workers.\n";
 }
 
-AssetManager::~AssetManager() {
-    clearAllCache();
-    cout << "[AssetManager] Singleton Instance Da Huy.\n";
-}
+AssetManager::~AssetManager() { shutdown(); }
 
 AssetManager& AssetManager::getInstance() {
-    // Thread-safe Meyers' Singleton trong Modern C++
     static AssetManager instance;
     return instance;
 }
 
-shared_ptr<IAsset> AssetManager::getAsset(const string& path, AssetType type, bool useProxy, bool useFlyweight, int delayMs) {
-    lock_guard<mutex> lock(managerMutex);
+AssetKey AssetManager::makeKey(const string& path, AssetType type, LoadMode mode) {
+    filesystem::path normalized = filesystem::absolute(filesystem::path(path)).lexically_normal();
+    return AssetKey{normalized.generic_string(), type, mode};
+}
 
-    // Don dep cac weak_ptr da bi huy truoc do
-    cleanDeadReferences();
+shared_ptr<IAsset> AssetManager::getAsset(const string& path, AssetType type,
+                                          bool useProxy, bool useFlyweight, int delayMs) {
+    if (stopped.load()) return nullptr;
+    LoadMode mode = useProxy ? LoadMode::ASYNCHRONOUS : LoadMode::SYNCHRONOUS;
+    AssetKey key = makeKey(path, type, mode);
 
-    // 1. NEU DUNG FLYWEIGHT: Kiem tra Cache Registry truoc
     if (useFlyweight) {
-        auto it = cacheRegistry.find(path);
-        if (it != cacheRegistry.end()) {
-            shared_ptr<IAsset> existing = it->second.lock();
-            if (existing) {
-                // Asset da ton tai trong Cache: Chia se con tro dung chung
-                touchLRU(path);
-                return existing;
-            }
-        }
+        auto existing = cache.find(key);
+        if (existing) return existing;
     }
 
-    // 2. TAO TAI NGUYEN MOI
-    shared_ptr<IAsset> newAsset;
-
+    shared_ptr<IAsset> asset;
     if (useProxy) {
-        // Su dung Virtual Proxy de load ngam (tranh giat lag)
-        newAsset = make_shared<AssetProxy>(path, type, nullptr, delayMs);
-        newAsset->load(path);
+        asset = make_shared<AssetProxy>(path, type, &loader, nullptr, delayMs);
+        asset->load(path); // Configures only; first render/play starts the worker job.
     } else {
-        // Load dong bo (Blocking Load) tren main thread -> Gay lag khung hinh de quan sat ro ret
         this_thread::sleep_for(chrono::milliseconds(25));
-        if (type == AssetType::TEXTURE_2D) {
-            newAsset = make_shared<TextureAsset>();
-        } else if (type == AssetType::MESH_3D) {
-            newAsset = make_shared<MeshAsset>();
-        } else {
-            newAsset = make_shared<AudioAsset>();
-        }
-        newAsset->load(path);
+        if (type == AssetType::TEXTURE_2D) asset = make_shared<TextureAsset>();
+        else if (type == AssetType::MESH_3D) asset = make_shared<MeshAsset>();
+        else asset = make_shared<AudioAsset>();
+        if (!asset->load(path)) asset.reset();
     }
 
-    // 3. NEU DUNG FLYWEIGHT: Luu vao Cache Registry duoi dang weak_ptr
-    if (useFlyweight && newAsset) {
-        cacheRegistry[path] = newAsset;
-        touchLRU(path);
-        currentCachedMemoryBytes += newAsset->getSizeBytes();
-
-        // Kiem tra nguong Memory Budget va thuc hien LRU neu can
-        if (currentCachedMemoryBytes > maxMemoryBudget) {
-            evictLRU();
-        }
-    }
-
-    return newAsset;
+    if (useFlyweight && asset) cache.insert(key, asset);
+    return asset;
 }
 
-void AssetManager::touchLRU(const string& path) {
-    auto it = lruIterators.find(path);
-    if (it != lruIterators.end()) {
-        lruAccessList.erase(it->second);
-    }
-    lruAccessList.push_front(path);
-    lruIterators[path] = lruAccessList.begin();
-}
-
-void AssetManager::evictLRU(size_t neededBytes) {
-    cout << "[AssetManager] [LRU Eviction] Kich hoat don dep Cache (Dung luong hien tai: " 
-         << currentCachedMemoryBytes / (1024 * 1024) << " MB, Nguong: " 
-         << maxMemoryBudget / (1024 * 1024) << " MB)...\n";
-
-    // Duyet tu cuoi danh sach LRU (cac tai nguyen it duoc dung nhat)
-    auto it = lruAccessList.rbegin();
-    while (it != lruAccessList.rend() && (currentCachedMemoryBytes > maxMemoryBudget || neededBytes > 0)) {
-        string path = *it;
-        auto regIt = cacheRegistry.find(path);
-
-        if (regIt != cacheRegistry.end()) {
-            // Neu khong con doi tuong nao su dung (use_count == 0 vi la weak_ptr)
-            if (regIt->second.expired()) {
-                cacheRegistry.erase(regIt);
-                lruIterators.erase(path);
-                it = list<string>::reverse_iterator(lruAccessList.erase((++it).base()));
-                cout << "[AssetManager] [LRU] Evicted expired asset: " << path << "\n";
-                continue;
-            }
-        }
-        ++it;
+void AssetManager::updateAsyncLoads(size_t maxUploads, double budgetMs) {
+    if (!stopped.load()) {
+        loader.pumpMainThreadUploads(maxUploads, budgetMs);
+        // Proxy size changes after main-thread upload; re-evaluate the live budget.
+        cache.evictLRU(0);
     }
 }
 
-void AssetManager::cleanDeadReferences() {
-    for (auto it = cacheRegistry.begin(); it != cacheRegistry.end();) {
-        if (it->second.expired()) {
-            string deadPath = it->first;
-            auto lruIt = lruIterators.find(deadPath);
-            if (lruIt != lruIterators.end()) {
-                lruAccessList.erase(lruIt->second);
-                lruIterators.erase(lruIt);
-            }
-            it = cacheRegistry.erase(it);
-            totalCleanedDeadCount++;
-            cout << "[AssetManager] [Ref Counting] Cleaned dead weak_ptr: " << deadPath << "\n";
-        } else {
-            ++it;
-        }
-    }
+void AssetManager::evictLRU(size_t neededBytes) { cache.evictLRU(neededBytes); }
+size_t AssetManager::collectUnused() { return cache.collectUnused(); }
+void AssetManager::cleanDeadReferences() { collectUnused(); }
+void AssetManager::clearAllCache() { cache.clear(); }
+
+void AssetManager::shutdown() {
+    bool expected = false;
+    if (!stopped.compare_exchange_strong(expected, true)) return;
+    loader.shutdown();
+    cache.clear();
+    cout << "[AssetManager] Shutdown completed before Raylib contexts closed.\n";
 }
 
-void AssetManager::clearAllCache() {
-    lock_guard<mutex> lock(managerMutex);
-    cacheRegistry.clear();
-    lruAccessList.clear();
-    lruIterators.clear();
-    lruHoldCache.clear();
-    currentCachedMemoryBytes = 0;
-}
+void AssetManager::setMemoryBudget(size_t budgetBytes) { cache.setBudget(budgetBytes); }
+size_t AssetManager::getMemoryBudget() const { return cache.getStats().budgetBytes; }
 
-void AssetManager::setMemoryBudget(size_t budgetBytes) {
-    lock_guard<mutex> lock(managerMutex);
-    maxMemoryBudget = budgetBytes;
-    if (currentCachedMemoryBytes > maxMemoryBudget) {
-        evictLRU();
-    }
-}
-
-MemoryStats AssetManager::getMemoryStats() {
-    lock_guard<mutex> lock(managerMutex);
-
+MemoryStats AssetManager::getMemoryStats() const {
+    AssetCacheStats cacheStats = cache.getStats();
     MemoryStats stats;
-    stats.maxBudgetBytes = maxMemoryBudget;
-    stats.deadReferencesCleaned = totalCleanedDeadCount;
-    stats.totalCachedEntries = cacheRegistry.size();
-
-    size_t activeCount = 0;
-    size_t totalBytes = 0;
-
-    for (const auto& pair : cacheRegistry) {
-        auto sp = pair.second.lock();
-        if (sp) {
-            activeCount++;
-            totalBytes += sp->getSizeBytes();
-        }
-    }
-
-    stats.activeLivingAssets = activeCount;
-    stats.totalAssetMemoryBytes = totalBytes;
+    stats.totalAssetRamBytes = cacheStats.ramBytes;
+    stats.totalAssetVramBytes = cacheStats.vramBytes;
+    stats.totalAssetMemoryBytes = cacheStats.ramBytes + cacheStats.vramBytes;
+    stats.totalCachedEntries = cacheStats.residentEntries;
+    stats.residentEntries = cacheStats.residentEntries;
+    stats.activeLivingAssets = cacheStats.liveEntries;
+    stats.deadReferencesCleaned = cacheStats.cleanedEntries;
+    stats.cacheHits = cacheStats.hits;
+    stats.cacheMisses = cacheStats.misses;
+    stats.evictionCount = cacheStats.evictions;
+    stats.loadingAssets = loader.getLoadingCount();
+    stats.maxBudgetBytes = cacheStats.budgetBytes;
+    stats.lruTriggered = cacheStats.evictions > 0;
     return stats;
 }

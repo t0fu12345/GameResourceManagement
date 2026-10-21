@@ -3,6 +3,7 @@ build/
 bin/
 *.exe
 *.obj
+!assets/models/*.obj
 *.o
 
 # IDE & Editor files
