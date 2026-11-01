@@ -1,0 +1,103 @@
+HƯỚNG DẪN GIẢI NÉN, BIÊN DỊCH VÀ CHẠY TEST
+Dự án: Khung quản lý tài nguyên game đa nền tảng (C++17, raylib)
+Để xem sự khác biệt khi bấm các phím demo, đọc MỤC 5 bên dưới.
+
+1. CHUẨN BỊ GÓI NỘP
+
+File ZIP cần chứa các thư mục src, include, assets, tests, docs, external
+và các file CMakeLists.txt, run.bat, run.sh, README.md, HUONGDAN.txt.
+Không cần đóng gói thư mục build, .git, .cache hoặc file .exe đã biên dịch.
+
+2. YÊU CẦU TRÊN WINDOWS 64-BIT
+
+- CMake 3.20 trở lên.
+- Trình biên dịch MinGW-w64 (g++) hỗ trợ C++17.
+- Ninja hoặc mingw32-make nằm trong PATH.
+- Thư viện raylib 5.5 dành cho Windows/MinGW đã có trong thư mục external;
+  không cần cài raylib riêng nếu giữ nguyên thư mục này.
+
+Có thể kiểm tra công cụ trong PowerShell bằng:
+    cmake --version
+    g++ --version
+    ninja --version
+
+Nếu không có Ninja, có thể dùng mingw32-make. Sau khi cài công cụ, mở lại
+PowerShell để PATH được cập nhật.
+
+3. GIẢI NÉN VÀ CHẠY TEST
+
+Giải nén ZIP vào một thư mục bất kỳ. Mở PowerShell tại thư mục gốc của
+dự án, là nơi có CMakeLists.txt và run.bat. Chạy:
+    .\run.bat --build-only
+
+Script sẽ cấu hình CMake, biên dịch chương trình và chạy bộ test CTest.
+Kết quả thành công hiện tại là "100% tests passed" và "1/1" test.
+Tham số --build-only dừng sau khi chạy test, không mở cửa sổ game.
+
+Có thể chạy lại riêng bộ test bằng:
+    ctest --test-dir build -C Release --output-on-failure
+
+4. CHẠY DEMO
+
+Trong cùng thư mục, chạy:
+    .\run.bat
+
+Script sẽ biên dịch, chạy test, sau đó mở cửa sổ game. Các phím dùng thử:
+    Space/Enter : Tạo thêm 50 đối tượng
+    C           : Xóa tất cả đối tượng
+    1           : Bật/tắt Flyweight (không cho tắt nếu có hơn 200 đối tượng)
+    2           : Bật/tắt Proxy cho đối tượng tạo sau đó
+    3           : Dọn tài sản không còn được dùng khỏi cache bằng LRU
+    4           : Hiển thị kết quả chuyển mã texture mô phỏng
+    5           : Tạo demo 1.000 đối tượng; bật lại Flyweight và Proxy
+    P           : Phát âm thanh mẫu
+    F11         : Bật/tắt toàn màn hình
+
+5. CÁCH QUAN SÁT SỰ KHÁC BIỆT KHI DEMO
+
+Khi mở game, đã có sẵn 50 đối tượng. Theo dõi bảng ASSET PROFILER ở
+bên phải và dòng thông báo trạng thái ở cuối màn hình.
+
+- Phím 1 - Flyweight (chia sẻ tài sản): Khi BẬT, các đối tượng cùng loại
+  dùng chung tài sản hình ảnh. Khi TẮT, hình ảnh của từng đối tượng được
+  tạo riêng; chỉ số Process RAM (OS) có thể tăng rõ rệt. Bấm 1 lần nữa
+  để dùng chung trở lại. Hãy thử với 50 đối tượng ban đầu. Nếu có hơn
+  200 đối tượng, chương trình không cho tắt để tránh dùng quá nhiều RAM.
+  Chỉ số Asset RAM/VRAM của cache không bao gồm các bản sao khi tắt
+  Flyweight; hãy nhìn Process RAM (OS) để so sánh.
+
+- Phím 2 - Proxy (thời điểm tải hình ảnh): Khi BẬT, đối tượng mới có thể
+  hiện hình tạm và chữ LOAD... trong lúc hình thật được chuẩn bị ở luồng
+  nền. Khi TẮT, đối tượng mới tải hình ngay lúc được tạo; lúc bấm
+  Space/Enter, game có thể khựng ngắn. Phím 2 chỉ ảnh hưởng đối tượng
+  tạo sau khi đổi chế độ, không đổi đối tượng đang có. Âm thanh trong
+  demo vẫn được tải đồng bộ ở cả hai chế độ. Để so sánh, bấm C để xóa,
+  chọn chế độ Proxy mong muốn, rồi bấm Space tạo 50 đối tượng mới.
+
+- Phím 3 - LRU: Yêu cầu loại tài sản ít dùng và không còn đối tượng nào
+  giữ khỏi cache. Dòng trạng thái báo số asset đã bị loại. Nếu hiện 0,
+  nghĩa là lúc đó không có tài sản phù hợp; ví dụ tài sản vẫn đang được
+  các đối tượng sử dụng.
+
+- Phím 4 - Chuyển mã: Dòng trạng thái hiển thị phép tính mô phỏng từ
+  texture 4 MB xuống 1 MB, tương ứng tiết kiệm 75% VRAM. Phím này
+  không tạo file nén thật và không làm VRAM đang dùng giảm đi.
+
+- Phím 5 - Demo 1.000 đối tượng: Xóa scene hiện tại rồi tạo 1.000 đối
+  tượng, tự bật Flyweight và Proxy. Quan sát Entities, FPS và Process
+  RAM trên bảng profiler. Sau khi bấm 5, phím 1 sẽ không tắt Flyweight
+  do số đối tượng vượt 200; bấm C trước nếu muốn thử lại phím 1.
+
+- Space/Enter tạo thêm 50 đối tượng; C xóa hết và dọn tài sản không còn
+  được dùng. P phát âm thanh mẫu nếu đang có đối tượng. F11 đổi chế độ
+  toàn màn hình; các phím này không phải công tắc tối ưu bộ nhớ.
+
+6. GHI CHÚ
+
+- Thư mục build được tạo tự động. Không nên đưa thư mục build vào ZIP vì
+  CMakeCache.txt lưu đường dẫn tuyệt đối của máy đã biên dịch.
+- Nếu chuyển thư mục dự án mà vẫn mang theo build, run.bat sẽ phát hiện
+  cache cũ và tạo lại cấu hình CMake.
+- Trên Linux/macOS, cần cài raylib 5.5 và bộ công cụ C++/CMake phù hợp,
+  sau đó chạy "sh run.sh" từ thư mục gốc. Gói raylib trong external được
+  dùng cho Windows/MinGW.
