@@ -8,8 +8,10 @@
 #include <unordered_map>
 #include <vector>
 
+using namespace std;
+
 struct AssetKey {
-    std::string canonicalPath;
+    string canonicalPath;
     AssetType type{AssetType::TEXTURE_2D};
     LoadMode mode{LoadMode::SYNCHRONOUS};
 
@@ -40,8 +42,8 @@ class AssetCache {
 public:
     explicit AssetCache(size_t budgetBytes = 128ULL * 1024ULL * 1024ULL);
 
-    std::shared_ptr<IAsset> find(const AssetKey& key);
-    void insert(const AssetKey& key, const std::shared_ptr<IAsset>& asset);
+    shared_ptr<IAsset> find(const AssetKey& key);
+    void insert(const AssetKey& key, const shared_ptr<IAsset>& asset);
     size_t evictLRU(size_t neededBytes = 0);
     size_t collectUnused();
     void clear();
@@ -49,13 +51,13 @@ public:
     AssetCacheStats getStats() const;
 
 private:
-    using LruList = std::list<AssetKey>;
+    using LruList = list<AssetKey>;
 
-    mutable std::mutex mutex;
-    std::unordered_map<AssetKey, std::weak_ptr<IAsset>, AssetKeyHash> registry;
-    std::unordered_map<AssetKey, std::shared_ptr<IAsset>, AssetKeyHash> residentAssets;
+    mutable mutex mutex_;
+    unordered_map<AssetKey, weak_ptr<IAsset>, AssetKeyHash> registry;
+    unordered_map<AssetKey, shared_ptr<IAsset>, AssetKeyHash> residentAssets;
     LruList lru;
-    std::unordered_map<AssetKey, LruList::iterator, AssetKeyHash> lruPositions;
+    unordered_map<AssetKey, LruList::iterator, AssetKeyHash> lruPositions;
     size_t budgetBytes;
     size_t hits{0};
     size_t misses{0};

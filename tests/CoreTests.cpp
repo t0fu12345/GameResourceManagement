@@ -122,7 +122,7 @@ void testLazyProxyAndWorkerPreparation() {
     }
     CHECK(textureTicket->state.load() == AssetLoadState::CPU_READY);
     {
-        lock_guard<mutex> lock(textureTicket->mutex);
+        lock_guard<mutex> lock(textureTicket->mutex_);
         CHECK(!textureTicket->prepared.usedFallback);
         CHECK(textureTicket->prepared.width == 4 && textureTicket->prepared.height == 4);
         CHECK(textureTicket->prepared.pixels.size() == 64);
@@ -137,7 +137,7 @@ void testLazyProxyAndWorkerPreparation() {
     }
     CHECK(fallbackTextureTicket->state.load() == AssetLoadState::CPU_READY);
     {
-        lock_guard<mutex> lock(fallbackTextureTicket->mutex);
+        lock_guard<mutex> lock(fallbackTextureTicket->mutex_);
         const auto& prepared = fallbackTextureTicket->prepared;
         CHECK(prepared.usedFallback);
         CHECK(prepared.width == 48 && prepared.height == 48);
@@ -171,7 +171,7 @@ void testLazyProxyAndWorkerPreparation() {
     }
     CHECK(waveTicket->state.load() == AssetLoadState::CPU_READY);
     {
-        lock_guard<mutex> lock(waveTicket->mutex);
+        lock_guard<mutex> lock(waveTicket->mutex_);
         CHECK(!waveTicket->prepared.usedFallback);
         CHECK(!waveTicket->prepared.samples.empty());
     }
@@ -186,7 +186,7 @@ void testLazyProxyAndWorkerPreparation() {
     }
     CHECK(objTicket->state.load() == AssetLoadState::CPU_READY);
     {
-        lock_guard<mutex> lock(objTicket->mutex);
+        lock_guard<mutex> lock(objTicket->mutex_);
         CHECK(!objTicket->prepared.usedFallback);
         CHECK(objTicket->prepared.vertices.size() == 108);
     }
@@ -200,7 +200,7 @@ void testLazyProxyAndWorkerPreparation() {
     }
     CHECK(ticket->state.load() == AssetLoadState::CPU_READY);
     {
-        lock_guard<mutex> lock(ticket->mutex);
+        lock_guard<mutex> lock(ticket->mutex_);
         CHECK(ticket->prepared.success);
         CHECK(ticket->prepared.usedFallback);
         CHECK(!ticket->prepared.samples.empty());

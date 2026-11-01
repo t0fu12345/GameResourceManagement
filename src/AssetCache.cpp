@@ -17,7 +17,7 @@ AssetCache::AssetCache(size_t initialBudgetBytes)
     : budgetBytes(initialBudgetBytes) {}
 
 shared_ptr<IAsset> AssetCache::find(const AssetKey &key) {
-  lock_guard<std::mutex> lock(mutex);
+  lock_guard<std::mutex> lock(mutex_);
   auto it = registry.find(key);
   if (it == registry.end()) {
     ++misses;
@@ -37,7 +37,7 @@ shared_ptr<IAsset> AssetCache::find(const AssetKey &key) {
 void AssetCache::insert(const AssetKey &key, const shared_ptr<IAsset> &asset) {
   if (!asset)
     return;
-  lock_guard<std::mutex> lock(mutex);
+  lock_guard<std::mutex> lock(mutex_);
   evictLRULocked(asset->getSizeBytes());
   registry[key] = asset;
   residentAssets[key] = asset;
@@ -45,7 +45,7 @@ void AssetCache::insert(const AssetKey &key, const shared_ptr<IAsset> &asset) {
 }
 
 size_t AssetCache::evictLRU(size_t neededBytes) {
-  lock_guard<std::mutex> lock(mutex);
+  lock_guard<std::mutex> lock(mutex_);
   return evictLRULocked(neededBytes);
 }
 
@@ -73,7 +73,7 @@ size_t AssetCache::evictLRULocked(size_t neededBytes) {
 }
 
 size_t AssetCache::collectUnused() {
-  lock_guard<std::mutex> lock(mutex);
+  lock_guard<std::mutex> lock(mutex_);
   vector<AssetKey> unused;
   unused.reserve(residentAssets.size());
   for (const auto &pair : residentAssets) {
@@ -88,7 +88,7 @@ size_t AssetCache::collectUnused() {
 }
 
 void AssetCache::clear() {
-  lock_guard<std::mutex> lock(mutex);
+  lock_guard<std::mutex> lock(mutex_);
   registry.clear();
   residentAssets.clear();
   lru.clear();
@@ -96,13 +96,13 @@ void AssetCache::clear() {
 }
 
 void AssetCache::setBudget(size_t newBudgetBytes) {
-  lock_guard<std::mutex> lock(mutex);
+  lock_guard<std::mutex> lock(mutex_);
   budgetBytes = newBudgetBytes;
   evictLRULocked(0);
 }
 
 AssetCacheStats AssetCache::getStats() const {
-  lock_guard<std::mutex> lock(mutex);
+  lock_guard<std::mutex> lock(mutex_);
   AssetCacheStats stats;
   stats.budgetBytes = budgetBytes;
   stats.residentEntries = residentAssets.size();

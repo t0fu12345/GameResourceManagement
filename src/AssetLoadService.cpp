@@ -140,7 +140,7 @@ shared_ptr<AssetLoadTicket> AssetLoadService::submit(const string& path, AssetTy
     auto ticket = make_shared<AssetLoadTicket>();
     ticket->state.store(AssetLoadState::QUEUED);
     {
-        lock_guard<std::mutex> lock(mutex);
+        lock_guard<std::mutex> lock(mutex_);
         if (!accepting) {
             ticket->state.store(AssetLoadState::CANCELLED);
             ticket->error = "Asset loader is shutting down";
@@ -156,7 +156,7 @@ void AssetLoadService::workerLoop() {
     while (true) {
         WorkItem item;
         {
-            unique_lock<std::mutex> lock(mutex);
+            unique_lock<std::mutex> lock(mutex_);
             condition.wait(lock, [this] { return stopping || !pending.empty(); });
             if (stopping && pending.empty()) return;
             item = move(pending.front());
@@ -166,14 +166,14 @@ void AssetLoadService::workerLoop() {
         item.ticket->state.store(AssetLoadState::LOADING);
         PreparedAssetData prepared = prepare(item.path, item.type);
         {
-            lock_guard<std::mutex> ticketLock(item.ticket->mutex);
+            lock_guard<std::mutex> ticketLock(item.ticket->mutex_);
             item.ticket->prepared = move(prepared);
             item.ticket->error = item.ticket->prepared.error;
         }
         item.ticket->state.store(item.ticket->prepared.success ? AssetLoadState::CPU_READY
                                                                 : AssetLoadState::FAILED);
         {
-            lock_guard<std::mutex> lock(mutex);
+            lock_guard<std::mutex> lock(mutex_);
             if (item.ticket->state.load() == AssetLoadState::CPU_READY) completed.push_back(item.ticket);
         }
         --activeJobs;
@@ -265,19 +265,19 @@ size_t AssetLoadService::pumpMainThreadUploads(size_t maxUploads, double budgetM
     while (uploaded < maxUploads) {
         shared_ptr<AssetLoadTicket> ticket;
         {
-            lock_guard<std::mutex> lock(mutex);
+            lock_guard<std::mutex> lock(mutex_);
             if (completed.empty()) break;
             ticket = completed.front();
             completed.pop_front();
         }
         PreparedAssetData prepared;
         {
-            lock_guard<std::mutex> ticketLock(ticket->mutex);
+            lock_guard<std::mutex> ticketLock(ticket->mutex_);
             prepared = move(ticket->prepared);
         }
         auto asset = finalize(prepared);
         {
-            lock_guard<std::mutex> ticketLock(ticket->mutex);
+            lock_guard<std::mutex> ticketLock(ticket->mutex_);
             ticket->asset = move(asset);
             if (!ticket->asset) ticket->error = "Main-thread upload failed: " + prepared.path;
         }
@@ -290,13 +290,13 @@ size_t AssetLoadService::pumpMainThreadUploads(size_t maxUploads, double budgetM
 }
 
 size_t AssetLoadService::getLoadingCount() const {
-    lock_guard<std::mutex> lock(mutex);
+    lock_guard<std::mutex> lock(mutex_);
     return pending.size() + completed.size() + activeJobs.load();
 }
 
 void AssetLoadService::shutdown() {
     {
-        lock_guard<std::mutex> lock(mutex);
+        lock_guard<std::mutex> lock(mutex_);
         if (!accepting && stopping) return;
         accepting = false;
         stopping = true;
@@ -309,6 +309,6 @@ void AssetLoadService::shutdown() {
     condition.notify_all();
     for (auto& worker : workers) if (worker.joinable()) worker.join();
     workers.clear();
-    lock_guard<std::mutex> lock(mutex);
+    lock_guard<std::mutex> lock(mutex_);
     completed.clear();
 }

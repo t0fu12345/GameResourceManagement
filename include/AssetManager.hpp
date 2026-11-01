@@ -8,6 +8,8 @@
 #include <memory>
 #include <string>
 
+using namespace std;
+
 struct MemoryStats {
     size_t totalAssetMemoryBytes{0};
     size_t totalAssetRamBytes{0};
@@ -29,19 +31,19 @@ private:
     AssetCache cache;
     AssetLoadService loader;
     AssetTranscoder transcoder;
-    std::atomic<bool> stopped{false};
+    atomic<bool> stopped{false};
 
     AssetManager();
     ~AssetManager();
     AssetManager(const AssetManager&) = delete;
     AssetManager& operator=(const AssetManager&) = delete;
 
-    static AssetKey makeKey(const std::string& path, AssetType type, LoadMode mode);
+    static AssetKey makeKey(const string& path, AssetType type, LoadMode mode);
 
 public:
     static AssetManager& getInstance();
 
-    std::shared_ptr<IAsset> getAsset(const std::string& path, AssetType type,
+    shared_ptr<IAsset> getAsset(const string& path, AssetType type,
                                      bool useProxy = true, bool useFlyweight = true,
                                      int delayMs = 1500);
     void updateAsyncLoads(size_t maxUploads = 2, double budgetMs = 2.0);

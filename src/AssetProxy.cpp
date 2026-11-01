@@ -60,7 +60,7 @@ void AssetProxy::checkAndSwap() {
 
     lock_guard<mutex> lock(swapMutex);
     if (!realAsset) {
-        lock_guard<mutex> ticketLock(ticket->mutex);
+        lock_guard<mutex> ticketLock(ticket->mutex_);
         realAsset = ticket->asset;
         if (realAsset) {
             placeholderAsset.reset();
