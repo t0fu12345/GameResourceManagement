@@ -11,12 +11,78 @@
 using namespace std;
 
 namespace {
+mutex imageDecodeMutex;
+
 Color colorForPath(const string& path) {
     if (path.find("zombie") != string::npos) return DARKGREEN;
     if (path.find("demon") != string::npos) return RED;
     if (path.find("dragon") != string::npos) return GOLD;
     if (path.find("robot") != string::npos) return SKYBLUE;
     return PURPLE;
+}
+
+void putPixel(vector<uint8_t>& pixels, int width, int height, int x, int y, Color color) {
+    if (x < 0 || y < 0 || x >= width || y >= height) return;
+    size_t offset = static_cast<size_t>((y * width + x) * 4);
+    pixels[offset] = color.r;
+    pixels[offset + 1] = color.g;
+    pixels[offset + 2] = color.b;
+    pixels[offset + 3] = color.a;
+}
+
+void fillRectangle(vector<uint8_t>& pixels, int width, int height,
+                   int x, int y, int rectangleWidth, int rectangleHeight, Color color) {
+    for (int py = y; py < y + rectangleHeight; ++py) {
+        for (int px = x; px < x + rectangleWidth; ++px) {
+            putPixel(pixels, width, height, px, py, color);
+        }
+    }
+}
+
+void fillCircle(vector<uint8_t>& pixels, int width, int height,
+                int centerX, int centerY, int radius, Color color) {
+    for (int y = centerY - radius; y <= centerY + radius; ++y) {
+        for (int x = centerX - radius; x <= centerX + radius; ++x) {
+            int dx = x - centerX;
+            int dy = y - centerY;
+            if (dx * dx + dy * dy <= radius * radius) {
+                putPixel(pixels, width, height, x, y, color);
+            }
+        }
+    }
+}
+
+vector<uint8_t> createMonsterFallback(const string& path, int width, int height) {
+    vector<uint8_t> pixels(static_cast<size_t>(width * height * 4), 0);
+    Color body = colorForPath(path);
+
+    fillRectangle(pixels, width, height, 4, 8, width - 8, height - 12, body);
+    fillRectangle(pixels, width, height, 4, 8, width - 8, 2, BLACK);
+    fillRectangle(pixels, width, height, 4, height - 6, width - 8, 2, BLACK);
+    fillRectangle(pixels, width, height, 4, 8, 2, height - 12, BLACK);
+    fillRectangle(pixels, width, height, width - 6, 8, 2, height - 12, BLACK);
+
+    fillCircle(pixels, width, height, width / 2 - 8, 20, 5, WHITE);
+    fillCircle(pixels, width, height, width / 2 + 8, 20, 5, WHITE);
+    fillCircle(pixels, width, height, width / 2 - 8, 20, 2, BLACK);
+    fillCircle(pixels, width, height, width / 2 + 8, 20, 2, BLACK);
+
+    if (path.find("demon") != string::npos) {
+        fillRectangle(pixels, width, height, 6, 2, 6, 8, BLACK);
+        fillRectangle(pixels, width, height, width - 12, 2, 6, 8, BLACK);
+        fillRectangle(pixels, width, height, width / 2 - 6, 30, 12, 4, BLACK);
+    } else if (path.find("zombie") != string::npos) {
+        fillRectangle(pixels, width, height, width / 2 - 8, 30, 16, 5, MAROON);
+    } else if (path.find("robot") != string::npos) {
+        fillRectangle(pixels, width, height, width / 2 - 2, 2, 4, 7, DARKGRAY);
+        fillCircle(pixels, width, height, width / 2, 2, 3, RED);
+        fillRectangle(pixels, width, height, width / 2 - 12, 18, 24, 6, DARKBLUE);
+    } else {
+        fillRectangle(pixels, width, height, 1, 16, 5, 14, ORANGE);
+        fillRectangle(pixels, width, height, width - 6, 16, 5, 14, ORANGE);
+    }
+
+    return pixels;
 }
 
 vector<float> parseObjTriangles(const string& path) {
@@ -121,30 +187,26 @@ PreparedAssetData AssetLoadService::prepare(const string& path, AssetType type) 
 
     if (type == AssetType::TEXTURE_2D) {
         Image image{};
-        if (filesystem::exists(path)) image = LoadImage(path.c_str());
-        if (image.data) {
-            ImageFormat(&image, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
-            data.width = image.width;
-            data.height = image.height;
-            size_t size = static_cast<size_t>(image.width) * image.height * 4U;
-            auto* bytes = static_cast<uint8_t*>(image.data);
-            data.pixels.assign(bytes, bytes + size);
-            UnloadImage(image);
-        } else {
+        {
+            // Raylib's image decoder uses shared library state. Serialize CPU decoding;
+            // GPU texture creation remains on the main thread in finalize().
+            lock_guard<std::mutex> decodeLock(imageDecodeMutex);
+            if (filesystem::exists(path)) image = LoadImage(path.c_str());
+            if (image.data) {
+                ImageFormat(&image, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+                data.width = image.width;
+                data.height = image.height;
+                size_t size = static_cast<size_t>(image.width) * image.height * 4U;
+                auto* bytes = static_cast<uint8_t*>(image.data);
+                data.pixels.assign(bytes, bytes + size);
+                UnloadImage(image);
+            }
+        }
+        if (data.pixels.empty()) {
             data.usedFallback = true;
             data.width = 48;
             data.height = 48;
-            Color color = colorForPath(path);
-            data.pixels.resize(static_cast<size_t>(data.width * data.height * 4), 0);
-            for (int y = 4; y < 44; ++y) {
-                for (int x = 4; x < 44; ++x) {
-                    size_t p = static_cast<size_t>((y * data.width + x) * 4);
-                    data.pixels[p] = color.r;
-                    data.pixels[p + 1] = color.g;
-                    data.pixels[p + 2] = color.b;
-                    data.pixels[p + 3] = 255;
-                }
-            }
+            data.pixels = createMonsterFallback(path, data.width, data.height);
         }
         data.success = !data.pixels.empty();
     } else if (type == AssetType::AUDIO_CLIP) {

@@ -26,11 +26,20 @@ add_library(GameAssetCore STATIC ${CORE_SOURCES})
 target_include_directories(GameAssetCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/raylib-5.5_win64_mingw-w64/lib/libraylib.a")
-    add_library(raylib_vendor STATIC IMPORTED GLOBAL)
-    set_target_properties(raylib_vendor PROPERTIES
-        IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/external/raylib-5.5_win64_mingw-w64/lib/libraylib.a"
-        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/external/raylib-5.5_win64_mingw-w64/include"
+    # MinGW's linker can corrupt non-ASCII source paths (for example "Kì 3").
+    # Copy the archive into the build tree and link it through an ASCII-only,
+    # relative search path so ld.exe never receives the Unicode project path.
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/raylib_vendor")
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/raylib-5.5_win64_mingw-w64/lib/libraylib.a"
+        "${CMAKE_BINARY_DIR}/raylib_vendor/libraylib.a"
+        COPYONLY
     )
+    add_library(raylib_vendor INTERFACE)
+    target_include_directories(raylib_vendor INTERFACE
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/raylib-5.5_win64_mingw-w64/include"
+    )
+    target_link_libraries(raylib_vendor INTERFACE "-Lraylib_vendor" raylib)
     target_link_libraries(GameAssetCore PUBLIC raylib_vendor Threads::Threads opengl32 gdi32 winmm psapi)
 else()
     find_package(raylib 5.5 REQUIRED)
@@ -40,11 +49,9 @@ endif()
 add_executable(GameAssetManager src/main.cpp)
 target_link_libraries(GameAssetManager PRIVATE GameAssetCore)
 
-add_custom_command(TARGET GameAssetManager POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_CURRENT_SOURCE_DIR}/assets
-            $<TARGET_FILE_DIR:GameAssetManager>/assets
-)
+# Copy during configuration. CMake handles the Unicode source path itself;
+# a POST_BUILD cmd.exe command would corrupt that path on legacy code pages.
+file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/assets" DESTINATION "${CMAKE_BINARY_DIR}")
 
 if(BUILD_TESTING)
     add_executable(GameAssetCoreTests tests/CoreTests.cpp)

@@ -9,6 +9,7 @@
 #include <iostream>
 #include <filesystem>
 #include <thread>
+#include <unordered_set>
 
 using namespace std;
 
@@ -125,6 +126,31 @@ void testLazyProxyAndWorkerPreparation() {
         CHECK(!textureTicket->prepared.usedFallback);
         CHECK(textureTicket->prepared.width == 4 && textureTicket->prepared.height == 4);
         CHECK(textureTicket->prepared.pixels.size() == 64);
+    }
+
+    auto fallbackTextureTicket = loader.submit("missing-zombie.png", AssetType::TEXTURE_2D);
+    auto fallbackTextureDeadline = chrono::steady_clock::now() + chrono::seconds(2);
+    while ((fallbackTextureTicket->state.load() == AssetLoadState::QUEUED ||
+            fallbackTextureTicket->state.load() == AssetLoadState::LOADING) &&
+           chrono::steady_clock::now() < fallbackTextureDeadline) {
+        this_thread::sleep_for(chrono::milliseconds(5));
+    }
+    CHECK(fallbackTextureTicket->state.load() == AssetLoadState::CPU_READY);
+    {
+        lock_guard<mutex> lock(fallbackTextureTicket->mutex);
+        const auto& prepared = fallbackTextureTicket->prepared;
+        CHECK(prepared.usedFallback);
+        CHECK(prepared.width == 48 && prepared.height == 48);
+        CHECK(prepared.pixels.size() == 48U * 48U * 4U);
+        unordered_set<uint32_t> opaqueColors;
+        for (size_t i = 0; i + 3 < prepared.pixels.size(); i += 4) {
+            if (prepared.pixels[i + 3] == 0) continue;
+            uint32_t rgb = (static_cast<uint32_t>(prepared.pixels[i]) << 16U) |
+                           (static_cast<uint32_t>(prepared.pixels[i + 1]) << 8U) |
+                           prepared.pixels[i + 2];
+            opaqueColors.insert(rgb);
+        }
+        CHECK(opaqueColors.size() >= 4); // Body, outline, eyes and monster detail.
     }
 
     filesystem::path wavPath = tempRoot / "disk_audio.wav";

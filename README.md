@@ -45,7 +45,7 @@ Khi khởi chạy cửa sổ game 1280x720, bạn có thể tương tác bằng 
 ## 3. Cách Biên Dịch & Khởi Chạy
 
 ### Cách 1: Khởi chạy nhanh
-Chạy file script [run.bat](file:///c:/Users/PC/OneDrive%20-%20National%20Economics%20University/K%C3%AC%203/OOP/project/run.bat) hoặc gõ trong terminal:
+Chạy file script run.bat hoặc gõ trong terminal:
 ```powershell
 .\run.bat
 ```
